@@ -36,6 +36,10 @@ expiry error: `make converge TAGS=rhel`.
 
 ## Front door operations
 
+- Browser trust: `make trust` (System keychain, sudo) → quit/reopen Chrome;
+  `make trust-status` to check; `make untrust` to remove. If the CA is ever
+  regenerated, run `make untrust && make trust`.
+
 - Names instead of the IP (optional, never done by automation) — add to the
   Mac's `/etc/hosts`: `<red-proxy-1 ip> vault.red-pass.lab ui.red-pass.lab id.red-pass.lab`.
   The issuer stays the IP URL, so OIDC keeps working either way.

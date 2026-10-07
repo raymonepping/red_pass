@@ -99,6 +99,7 @@ vault namespace list
 | `make identity-show-user PERSON=<uid>` | Print one lab password (explicit, lab only) |
 | `make ui-start-auth` | Host console with Keycloak sign-in and role gating |
 | `make proxy` / `proxy-failover-test` | Front door on red-proxy-1 / prove leader failover through it |
+| `make trust` / `untrust` / `trust-status` | Trust the lab CA in the macOS keychain so Chrome/Safari accept every red_pass URL |
 | `make agent` / `seal-rotate` | Seal agent on red-agent-1 / rotate its secret-id now |
 
 ## Secret boundary
@@ -136,8 +137,14 @@ Everything you open in a browser goes through `red-proxy-1`:
 TLS terminates at the proxy with a lab-CA certificate (SANs: the proxy IP,
 `red-proxy-1`, `vault.red-pass.lab`, `ui.red-pass.lab`, `id.red-pass.lab`) and is
 re-encrypted to each backend with `verify required` + `verifyhost`. The
-console and Keycloak accept connections **only from the proxy**; trust the lab
-CA (`.secrets/tls/ca.crt`) in your browser/keychain to avoid warnings.
+console and Keycloak accept connections **only from the proxy**.
+
+**No browser warnings:** `make trust` adds the lab CA (`.secrets/tls/ca.crt`) to
+the macOS System keychain as a trusted root (asks for your password); quit and
+reopen Chrome afterwards. `make trust-status` shows whether the CA is trusted
+and whether macOS accepts the front door's certificate; `make untrust` removes
+it. Every certificate carries IP SANs and stays under Apple's 825-day limit,
+so the IP URLs work without `/etc/hosts` entries.
 `make proxy-failover-test` stops Vault on the active node and proves the
 front door follows the new leader (≈4 s) while the old node auto-unseals.
 

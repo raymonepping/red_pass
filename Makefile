@@ -120,3 +120,13 @@ agent: ## Seal agent on red-agent-1 (AppRole + Vault Agent); switches the cluste
 seal-rotate: ## Rotate the seal agent's secret-id now (normally every 6h by timer)
 	multipass exec red-agent-1 -- sudo systemctl start seal-rotator.service
 	multipass exec red-agent-1 -- sudo journalctl -u seal-rotator -n 3 --no-pager -o cat
+
+.PHONY: trust untrust trust-status
+trust: ## Trust the lab CA in the macOS System keychain so Chrome/Safari accept every red_pass URL (sudo)
+	@./scripts/trust.sh trust
+
+untrust: ## Remove the lab CA from the macOS System keychain (sudo)
+	@./scripts/trust.sh untrust
+
+trust-status: ## Is the lab CA trusted, and does macOS accept the front door's certificate?
+	@./scripts/trust.sh status
