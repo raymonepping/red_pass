@@ -1,0 +1,16 @@
+---
+# platform.yml — Vault namespaces and secret-engine mounts through the
+# HTTP API with the scoped platform token (replaces terraform/platform).
+#
+#   make platform          apply
+#   make platform-check    --check --diff: report drift, change nothing
+
+- name: Build the in-memory inventory
+  ansible.builtin.import_playbook: discover.yml
+
+- name: Vault platform resources
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  roles:
+    - vault_platform

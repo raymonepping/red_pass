@@ -1,0 +1,226 @@
+---
+# validate.yml — read-only readiness contract for the whole estate.
+#
+#   make validate
+#
+# Success is the exit status. A non-secret evidence report is written to
+# .build/validation.json (pass/fail per check, never tokens or raw bodies)
+# before the final assertion, so failures are visible to the UI too.
+
+- name: Build the in-memory inventory
+  ansible.builtin.import_playbook: discover.yml
+
+- name: Node-level host evidence
+  hosts: red_pass
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Read service, SELinux, swap and firewall state
+      ansible.builtin.command:
+        argv: "{{ item.argv }}"
+      loop:
+        - { id: service, argv: [systemctl, is-active, vault] }
+        - { id: selinux, argv: [getenforce] }
+        - { id: swap, argv: [swapon, --show, --noheadings] }
+        - { id: firewall, argv: [firewall-cmd, --list-ports] }
+      loop_control:
+        label: "{{ item.id }}"
+      register: host_reads
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Summarise host evidence
+      ansible.builtin.set_fact:
+        node_checks:
+          - id: service
+            label: Vault service active
+            status: "{{ 'pass' if host_reads.results[0].stdout == 'active' else 'fail' }}"
+            detail: "{{ host_reads.results[0].stdout | default('') }}"
+          - id: selinux
+            label: SELinux enforcing
+            status: "{{ 'pass' if host_reads.results[1].stdout == 'Enforcing' else 'fail' }}"
+            detail: "{{ host_reads.results[1].stdout | default('') }}"
+          - id: swap
+            label: Swap disabled
+            status: "{{ 'pass' if host_reads.results[2].rc == 0 and host_reads.results[2].stdout | trim == '' else 'fail' }}"
+            detail: "{{ 'no active swap' if host_reads.results[2].stdout | trim == '' else 'swap active' }}"
+          - id: firewall
+            label: Firewall opens 8200/8201
+            status: >-
+              {{ 'pass' if ('8200/tcp' in host_reads.results[3].stdout.split()
+                            and '8201/tcp' in host_reads.results[3].stdout.split()) else 'fail' }}
+            detail: "{{ host_reads.results[3].stdout | default('') }}"
+
+- name: Vault evidence and report
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Read health and seal status of every node over verified TLS
+      ansible.builtin.uri:
+        url: "https://{{ hostvars[item].ansible_host }}:{{ vault_api_port }}/v1/sys/{{ 'health?standbyok=true&perfstandbyok=true' if item != lab_seal_node else 'health' }}"
+        ca_path: "{{ vault_ca_cert }}"
+        status_code: [200, 429, 472, 473, 501, 503]
+      loop: "{{ groups['red_pass'] | sort }}"
+      register: vault_health
+      failed_when: false
+      check_mode: false
+
+    - name: Read seal status of every node
+      ansible.builtin.uri:
+        url: "https://{{ hostvars[item].ansible_host }}:{{ vault_api_port }}/v1/sys/seal-status"
+        ca_path: "{{ vault_ca_cert }}"
+      loop: "{{ groups['red_pass'] | sort }}"
+      register: vault_seal
+      failed_when: false
+      check_mode: false
+
+    - name: Read authenticated cluster evidence (platform token)
+      ansible.builtin.uri:
+        url: "https://{{ hostvars[vault_leader].ansible_host }}:{{ vault_api_port }}/v1/{{ item }}"
+        ca_path: "{{ vault_ca_cert }}"
+        headers: { X-Vault-Token: "{{ lookup('file', platform_token_path) | trim }}" }
+        method: "{{ 'LIST' if item == 'sys/namespaces' else 'GET' }}"
+      loop: [sys/storage/raft/configuration, sys/license/status, sys/namespaces]
+      register: cluster_reads
+      failed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: Read platform mounts per namespace
+      ansible.builtin.uri:
+        url: "https://{{ hostvars[vault_leader].ansible_host }}:{{ vault_api_port }}/v1/sys/mounts"
+        ca_path: "{{ vault_ca_cert }}"
+        headers:
+          X-Vault-Token: "{{ lookup('file', platform_token_path) | trim }}"
+          X-Vault-Namespace: "{{ item }}"
+      loop: "{{ vault_namespaces }}"
+      register: platform_reads
+      failed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: Read seal-chain evidence (seal token)
+      ansible.builtin.uri:
+        url: "https://{{ hostvars[lab_seal_node].ansible_host }}:{{ vault_api_port }}/v1/{{ item }}"
+        ca_path: "{{ vault_ca_cert }}"
+        headers: { X-Vault-Token: "{{ lookup('file', seal_token_path) | trim }}" }
+      loop: [auth/token/lookup-self, "{{ seal_transit_mount }}/keys/{{ seal_transit_key }}"]
+      register: seal_reads
+      failed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: Reduce authenticated responses to non-secret facts
+      ansible.builtin.set_fact:
+        ev_raft_voters: >-
+          {{ (cluster_reads.results[0].json.data.config.servers | default([]))
+             | selectattr('voter', 'equalto', true) | map(attribute='node_id') | sort | list }}
+        # Valid = autoloaded licence whose expiry is still ahead (ISO-8601 UTC
+        # strings compare correctly as text).
+        ev_license_ok: >-
+          {{ cluster_reads.results[1].status == 200 and
+             (cluster_reads.results[1].json.data.autoloading_used | default(false)) and
+             (cluster_reads.results[1].json.data.autoloaded.expiration_time | default(''))
+               > now(utc=true).strftime('%Y-%m-%dT%H:%M:%SZ') }}
+        ev_license_expiry: "{{ cluster_reads.results[1].json.data.autoloaded.expiration_time | default('unknown') }}"
+        ev_namespaces: "{{ (cluster_reads.results[2].json.data['keys'] | default([])) | map('regex_replace', '/$', '') | list }}"
+        ev_mounts: >-
+          {{ dict(platform_reads.results | map(attribute='item')
+             | zip(platform_reads.results | map(attribute='json') | map('default', {}) | map(attribute='data', default={})
+                   | map('dict2items') | map('map', attribute='key') | map('list'))) }}
+        ev_seal_ttl: "{{ seal_reads.results[0].json.data.ttl | default(0) | int }}"
+        ev_seal_key: "{{ seal_reads.results[1].status == 200 }}"
+      no_log: true
+
+    - name: Find missing platform namespaces and mounts
+      ansible.builtin.set_fact:
+        ev_platform_missing: "{{ ev_platform_missing | default(vault_namespaces | difference(ev_namespaces)) + [item.namespace ~ '/' ~ item.path] }}"
+      loop: "{{ vault_mounts }}"
+      loop_control:
+        label: "{{ item.namespace }}/{{ item.path }}"
+      when: (item.path ~ '/') not in (ev_mounts[item.namespace] | default([]))
+
+    - name: Build per-node Vault evidence
+      ansible.builtin.set_fact:
+        ev_nodes: >-
+          {{ ev_nodes | default({}) | combine({node: {
+               'role': 'seal' if node == lab_seal_node else 'cluster',
+               'ha_role': ('active' if health.status == 200 and not (health.json.standby | default(true)) else
+                           ('standby' if health.json.standby | default(false) else 'unavailable')),
+               'version': health.json.version | default(''),
+               'checks': (hostvars[node].node_checks | default([])) + [
+                 {'id': 'tls', 'label': 'API reachable over verified TLS',
+                  'status': 'pass' if seal.status == 200 else 'fail',
+                  'detail': 'lab CA' if seal.status == 200 else (seal.msg | default('unreachable'))},
+                 {'id': 'initialized', 'label': 'Initialized',
+                  'status': 'pass' if seal.json.initialized | default(false) else 'fail', 'detail': ''},
+                 {'id': 'unsealed', 'label': 'Unsealed',
+                  'status': 'pass' if (seal.json.initialized | default(false)) and not (seal.json.sealed | default(true)) else 'fail',
+                  'detail': ''},
+                 {'id': 'seal_type', 'label': 'Seal type',
+                  'status': 'pass' if seal.json.type | default('') == expected_seal else 'fail',
+                  'detail': (seal.json.type | default('unknown')) ~ ' (expected ' ~ expected_seal ~ ')'}]}}) }}
+      vars:
+        node: "{{ item.0.item }}"
+        health: "{{ item.0 }}"
+        seal: "{{ item.1 }}"
+        expected_seal: "{{ 'shamir' if item.0.item == lab_seal_node else 'transit' }}"
+      loop: "{{ vault_health.results | zip(vault_seal.results) | list }}"
+      loop_control:
+        label: "{{ item.0.item }}"
+
+    - name: Build the evidence report
+      ansible.builtin.set_fact:
+        validation:
+          generated_at: "{{ now(utc=true).strftime('%Y-%m-%dT%H:%M:%SZ') }}"
+          nodes: "{{ ev_nodes }}"
+          cluster:
+            - id: active
+              label: Exactly one active cluster node
+              status: "{{ 'pass' if (ev_nodes | dict2items | selectattr('value.role', 'equalto', 'cluster') | selectattr('value.ha_role', 'equalto', 'active') | list | length) == 1 else 'fail' }}"
+              detail: "{{ ev_nodes | dict2items | selectattr('value.ha_role', 'equalto', 'active') | rejectattr('key', 'equalto', lab_seal_node) | map(attribute='key') | join(', ') }}"
+            - id: raft_voters
+              label: Raft voters
+              status: "{{ 'pass' if ev_raft_voters == (groups['vault'] | sort) else 'fail' }}"
+              detail: "{{ ev_raft_voters | length }} / {{ groups['vault'] | length }}"
+            - id: license
+              label: Enterprise license
+              status: "{{ 'pass' if ev_license_ok | bool else 'fail' }}"
+              detail: "expires {{ ev_license_expiry }}"
+            - id: platform
+              label: Platform namespaces and mounts
+              status: "{{ 'pass' if ev_platform_missing | default(vault_namespaces | difference(ev_namespaces)) | length == 0 else 'fail' }}"
+              detail: "{{ 'all present' if ev_platform_missing | default(vault_namespaces | difference(ev_namespaces)) | length == 0 else 'missing: ' ~ (ev_platform_missing | default(vault_namespaces | difference(ev_namespaces)) | join(', ')) }}"
+          seal_chain:
+            - id: seal_key
+              label: Transit key autounseal present
+              status: "{{ 'pass' if ev_seal_key | bool else 'fail' }}"
+              detail: "{{ lab_seal_node }}:{{ seal_transit_mount }}/keys/{{ seal_transit_key }}"
+            - id: seal_token_ttl
+              label: Seal token TTL
+              status: "{{ 'pass' if ev_seal_ttl | int >= seal_token_min_ttl_seconds else 'fail' }}"
+              detail: "{{ ((ev_seal_ttl | int) / 3600) | round(1) }}h remaining (minimum {{ (seal_token_min_ttl_seconds / 3600) | int }}h)"
+
+    - name: Write the non-secret evidence report
+      ansible.builtin.copy:
+        content: "{{ validation | to_nice_json(sort_keys=true) }}\n"
+        dest: "{{ validation_report }}"
+        mode: "0644"
+      check_mode: false
+      changed_when: false
+
+    - name: Collect failed checks
+      ansible.builtin.set_fact:
+        validation_failures: >-
+          {{ (ev_nodes | dict2items | map(attribute='value.checks') | flatten
+              | selectattr('status', 'equalto', 'fail') | map(attribute='label') | list)
+             + (validation.cluster | selectattr('status', 'equalto', 'fail') | map(attribute='label') | list)
+             + (validation.seal_chain | selectattr('status', 'equalto', 'fail') | map(attribute='label') | list) }}
+
+    - name: Require every check to pass
+      ansible.builtin.assert:
+        that: validation_failures | length == 0
+        fail_msg: "Failed checks: {{ validation_failures | unique | join('; ') }} (details in .build/validation.json)"
+        success_msg: "All validation checks passed ({{ validation_report }})"

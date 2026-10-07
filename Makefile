@@ -29,7 +29,34 @@ bootstrap: ## Seal chain: seal Vault, transit auto-unseal, cluster init, platfor
 unseal: ## Unseal red-vault-s (one key); the cluster auto-unseals
 	$(RUN) unseal
 
+.PHONY: platform platform-check validate lab check-mode status digest destroy rhel-unregister multi-pass-start
+platform: ## Create missing namespaces/mounts through the Vault API
+	$(RUN) platform
 
-.PHONY: status
+platform-check: ## Report platform drift without changing anything
+	CHECK=1 $(RUN) platform
+
+validate: ## Read-only end-to-end validation, writes .build/validation.json
+	$(RUN) validate
+
+lab: ## The whole phased workflow: provision → converge → bootstrap → platform → validate
+	./scripts/lab.sh
+
+check-mode: ## --check --diff over provision, converge, bootstrap, platform (expect changed=0)
+	@set -e; for p in provision converge bootstrap platform; do \
+	  printf '\n\033[1m== check-mode: %s\033[0m\n' "$$p"; CHECK=1 $(RUN) $$p; done
+
 status: ## vault status for every red_pass node
 	./scripts/status.sh
+
+digest: ## Print the current automation digest
+	@./scripts/automation-digest.sh
+
+destroy: ## Delete + purge ONLY the four red-vault VMs (confirmation required)
+	$(RUN) destroy
+
+rhel-unregister: ## Unregister guests from RHSM (CONFIRM_RHSM_UNREGISTER=yes)
+	$(RUN) rhel-unregister
+
+multi-pass-start: ## Start multi_pass's vault-1..3 again (start only)
+	multipass start vault-1 vault-2 vault-3

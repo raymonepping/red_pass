@@ -73,3 +73,13 @@ platform_token_period: 24h
 
 vault_ca_cert: "{{ tls_dir }}/ca.crt"
 
+# ── Platform layer (replaces terraform/platform) ──────────────────────────────
+vault_namespaces: [engineering, operations]
+vault_mounts:
+  - { namespace: engineering, path: kv, type: kv, description: KV v2 managed by Ansible, options: { version: "2" } }
+  - { namespace: engineering, path: transit, type: transit, description: Transit managed by Ansible }
+  - { namespace: operations, path: pki, type: pki, description: PKI mount managed by Ansible }
+
+# ── Validation ────────────────────────────────────────────────────────────────
+validation_report: "{{ build_dir }}/validation.json"
+seal_token_min_ttl_seconds: 259200   # 72h

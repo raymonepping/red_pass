@@ -66,6 +66,7 @@
     argv: ["{{ vault_bin }}", version]
   register: vault_installed_version
   changed_when: false
+  check_mode: false
   failed_when: vault_version not in vault_installed_version.stdout
 
 - name: Open the Vault API and cluster ports
@@ -84,6 +85,7 @@
   register: vault_active_swap
   changed_when: false
 
+  check_mode: false
 - name: Disable active swap
   ansible.builtin.command:
     argv: [swapoff, -a]

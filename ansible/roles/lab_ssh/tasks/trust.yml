@@ -17,6 +17,7 @@
   loop: "{{ lab_nodes }}"
   register: lab_host_scan
   changed_when: false
+  check_mode: false
   failed_when: lab_host_scan.rc != 0 or (lab_host_scan.stdout_lines | reject('match', '^#') | list | length == 0)
   retries: 10
   delay: 3
@@ -28,6 +29,7 @@
   loop: "{{ lab_nodes }}"
   register: lab_host_known
   changed_when: false
+  check_mode: false
   failed_when: lab_host_known.rc not in [0, 1]
 
 - name: Fail closed on a changed host key

@@ -1,0 +1,60 @@
+---
+# destroy.yml — delete and purge ONLY the four allow-listed red_pass VMs.
+# Controller secrets and caches are kept; see the printed reset steps.
+#
+#   make destroy                         (interactive confirmation)
+#   CONFIRM_DESTROY=yes make destroy     (non-interactive)
+
+- name: Destroy the red_pass VMs
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    destroy_confirmed: "{{ lookup('env', 'CONFIRM_DESTROY') == 'yes' }}"
+  tasks:
+    - name: Read the Multipass inventory
+      ansible.builtin.command:
+        argv: [multipass, list, --format, json]
+      register: destroy_list
+      changed_when: false
+      check_mode: false
+
+    - name: Select allow-listed instances that exist
+      ansible.builtin.set_fact:
+        destroy_targets: "{{ (destroy_list.stdout | from_json).list | map(attribute='name') | select('in', lab_nodes) | list }}"
+
+    - name: Ask for confirmation
+      ansible.builtin.pause:
+        prompt: >-
+          This permanently deletes {{ destroy_targets | join(', ') }} (and their
+          Vault data). Type 'destroy' to continue
+      register: destroy_answer
+      when:
+        - destroy_targets | length > 0
+        - not destroy_confirmed | bool
+
+    - name: Require explicit confirmation
+      ansible.builtin.assert:
+        that: destroy_confirmed | bool or (destroy_answer.user_input | default('')) == 'destroy'
+        fail_msg: Destroy cancelled (set CONFIRM_DESTROY=yes for non-interactive runs).
+        quiet: true
+      when: destroy_targets | length > 0
+
+    - name: Delete and purge the lab VMs
+      ansible.builtin.command:
+        argv: "{{ ['multipass', 'delete', '--purge'] + destroy_targets }}"
+      changed_when: true
+      when: destroy_targets | length > 0
+
+    - name: Remove the non-secret evidence that described them
+      ansible.builtin.file:
+        path: "{{ build_dir }}/{{ item }}"
+        state: absent
+      loop: [ownership.json, convergence.json, validation.json]
+
+    - name: Explain how to start a fresh lab
+      ansible.builtin.debug:
+        msg:
+          - Kept under .secrets/ (back them up or remove them deliberately).
+          - "For a fresh lab: rm .secrets/seal-init.json .secrets/seal-token .secrets/vault-init.json .secrets/platform-token .secrets/tls/red-vault-* .secrets/ansible/known_hosts"
+          - Then run 'make lab'. The lab CA and SSH identity may be reused.

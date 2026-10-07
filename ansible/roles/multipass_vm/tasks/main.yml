@@ -16,6 +16,7 @@
   register: mp_list
   changed_when: false
 
+  check_mode: false
 - name: Index existing instances
   ansible.builtin.set_fact:
     mp_instances: "{{ (mp_list.stdout | from_json).list }}"
@@ -93,6 +94,7 @@
   loop: "{{ lab_nodes }}"
   register: mp_info
   changed_when: false
+  check_mode: false
   until: >-
     mp_info.rc == 0 and
     (mp_info.stdout | from_json).info[item].state == 'Running' and
@@ -120,6 +122,7 @@
   loop: "{{ lab_nodes }}"
   register: mp_cloud_init
   changed_when: false
+  check_mode: false
   failed_when: >-
     'status: done' not in mp_cloud_init.stdout or
     'errors: []' not in mp_cloud_init.stdout

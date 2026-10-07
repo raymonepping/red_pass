@@ -11,15 +11,15 @@ declare -A values=()
 [[ -n "${RHSM_ORG:-}" ]] && values[rhsm_org]="${RHSM_ORG}"
 [[ -n "${RHSM_ACTIVATION_KEY:-}" ]] && values[rhsm_key]="${RHSM_ACTIVATION_KEY}"
 for f in seal-token platform-token; do
-  [[ -f "${SECRETS_DIR}/${f}" ]] && values[${f}]="$(tr -d '\n' <"${SECRETS_DIR}/${f}")"
+  [[ -f "${SECRETS_DIR}/${f}" ]] && values["${f}"]="$(tr -d '\n' <"${SECRETS_DIR}/${f}")"
 done
 for f in seal-init vault-init; do
   json="${SECRETS_DIR}/${f}.json"
   [[ -f "${json}" ]] || continue
-  values[${f}-root]="$(jq -r '.root_token' "${json}")"
+  values["${f}-root"]="$(jq -r '.root_token' "${json}")"
   i=0
   while IFS= read -r key; do
-    values[${f}-key${i}]="${key}"
+    values["${f}-key${i}"]="${key}"
     i=$((i + 1))
   done < <(jq -r '(.keys_base64 // []) + (.keys // []) + (.recovery_keys_base64 // []) + (.recovery_keys // []) | .[]' "${json}")
 done

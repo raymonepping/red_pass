@@ -1,0 +1,115 @@
+---
+# Desired-state Vault platform resources through the HTTP API with the
+# scoped platform token. Creates what is missing, never deletes or retypes.
+# In --check mode it reports (as "changed") what it would create.
+
+- name: Address the cluster
+  ansible.builtin.set_fact:
+    platform_addr: "https://{{ hostvars[vault_leader].ansible_host }}:{{ vault_api_port }}"
+
+- name: Manage namespaces and mounts with the platform token
+  module_defaults:
+    ansible.builtin.uri:
+      ca_path: "{{ vault_ca_cert }}"
+  no_log: true
+  block:
+    - name: List namespaces
+      ansible.builtin.uri:
+        url: "{{ platform_addr }}/v1/sys/namespaces"
+        method: LIST
+        headers: { X-Vault-Token: "{{ lookup('file', platform_token_path) | trim }}" }
+        status_code: [200, 404]
+      check_mode: false
+      register: platform_ns_list
+
+    - name: Compute missing namespaces
+      ansible.builtin.set_fact:
+        platform_missing_ns: >-
+          {{ vault_namespaces | difference(
+               (platform_ns_list.json.data['keys'] | default([])) | map('regex_replace', '/$', '') | list) }}
+
+    - name: Create missing namespaces
+      ansible.builtin.uri:
+        url: "{{ platform_addr }}/v1/sys/namespaces/{{ item }}"
+        method: POST
+        headers: { X-Vault-Token: "{{ lookup('file', platform_token_path) | trim }}" }
+        status_code: [200, 204]
+      check_mode: false
+      loop: "{{ platform_missing_ns }}"
+      changed_when: true
+      when: not ansible_check_mode
+
+    - name: Read mounts per namespace
+      ansible.builtin.uri:
+        url: "{{ platform_addr }}/v1/sys/mounts"
+        headers:
+          X-Vault-Token: "{{ lookup('file', platform_token_path) | trim }}"
+          X-Vault-Namespace: "{{ item }}"
+      check_mode: false
+      loop: "{{ vault_namespaces | difference(platform_missing_ns) }}"
+      register: platform_mount_reads
+
+    - name: Index existing mounts
+      ansible.builtin.set_fact:
+        platform_existing: >-
+          {{ platform_existing | default({}) | combine({item.item: item.json.data}) }}
+      loop: "{{ platform_mount_reads.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+- name: Refuse a mount that exists with a different type (drift)
+  ansible.builtin.assert:
+    that: >-
+      (platform_existing | default({}))[item.namespace][item.path ~ '/'] is not defined or
+      platform_existing[item.namespace][item.path ~ '/'].type == item.type
+    fail_msg: >-
+      {{ item.namespace }}/{{ item.path }} exists with type
+      {{ platform_existing[item.namespace][item.path ~ '/'].type | default('?') }},
+      expected {{ item.type }}. Automation never retypes or deletes a mount;
+      reconcile it manually.
+    quiet: true
+  loop: "{{ vault_mounts }}"
+  loop_control:
+    label: "{{ item.namespace }}/{{ item.path }}"
+
+- name: Compute missing mounts
+  ansible.builtin.set_fact:
+    platform_missing_mounts: "{{ platform_missing_mounts | default([]) + [item] }}"
+  loop: "{{ vault_mounts }}"
+  loop_control:
+    label: "{{ item.namespace }}/{{ item.path }}"
+  when: >-
+    (platform_existing | default({}))[item.namespace] is not defined or
+    platform_existing[item.namespace][item.path ~ '/'] is not defined
+
+- name: Create missing mounts
+  ansible.builtin.uri:
+    url: "{{ platform_addr }}/v1/sys/mounts/{{ item.path }}"
+    ca_path: "{{ vault_ca_cert }}"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ lookup('file', platform_token_path) | trim }}"
+      X-Vault-Namespace: "{{ item.namespace }}"
+    body_format: json
+    body:
+      type: "{{ item.type }}"
+      description: "{{ item.description | default('Managed by Ansible') }}"
+      options: "{{ item.options | default({}) }}"
+    status_code: [200, 204]
+  check_mode: false
+  loop: "{{ platform_missing_mounts | default([]) }}"
+  loop_control:
+    label: "{{ item.namespace }}/{{ item.path }}"
+  no_log: true
+  changed_when: true
+  when: not ansible_check_mode
+
+- name: Report the platform drift check mode would correct
+  ansible.builtin.debug:
+    msg: >-
+      Would create namespaces {{ platform_missing_ns }} and mounts
+      {{ platform_missing_mounts | default([]) | map(attribute='path') | list }}
+  changed_when: true
+  when:
+    - ansible_check_mode
+    - platform_missing_ns | length > 0 or platform_missing_mounts | default([]) | length > 0

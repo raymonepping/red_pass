@@ -1,0 +1,14 @@
+---
+# site.yml — the whole lab in one playbook run. `make lab` runs the same
+# phases one by one (scripts/lab.sh) for clearer resume points and writes
+# the convergence stamp.
+- name: Provision
+  ansible.builtin.import_playbook: provision.yml
+- name: Converge
+  ansible.builtin.import_playbook: converge.yml
+- name: Bootstrap
+  ansible.builtin.import_playbook: bootstrap.yml
+- name: Platform
+  ansible.builtin.import_playbook: platform.yml
+- name: Validate
+  ansible.builtin.import_playbook: validate.yml

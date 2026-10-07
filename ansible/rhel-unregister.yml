@@ -1,0 +1,46 @@
+---
+# rhel-unregister.yml — remove the four guests from Red Hat Subscription
+# Management. Never run by lab or destroy.
+#
+#   CONFIRM_RHSM_UNREGISTER=yes make rhel-unregister
+
+- name: Require explicit confirmation
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Require CONFIRM_RHSM_UNREGISTER=yes
+      ansible.builtin.assert:
+        that: lookup('env', 'CONFIRM_RHSM_UNREGISTER') == 'yes'
+        fail_msg: Set CONFIRM_RHSM_UNREGISTER=yes to unregister the red_pass guests.
+        quiet: true
+
+- name: Build the in-memory inventory
+  ansible.builtin.import_playbook: discover.yml
+
+- name: Unregister the guests
+  hosts: red_pass
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Check registration
+      ansible.builtin.command:
+        argv: [subscription-manager, identity]
+      register: unreg_identity
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Unregister from Red Hat
+      ansible.builtin.command:
+        argv: [subscription-manager, unregister]
+      changed_when: true
+      when: unreg_identity.rc == 0
+
+    - name: Verify the identity is gone
+      ansible.builtin.command:
+        argv: [subscription-manager, identity]
+      register: unreg_after
+      changed_when: false
+      failed_when: unreg_after.rc == 0
+      when: not ansible_check_mode

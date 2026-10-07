@@ -17,6 +17,7 @@
         argv: [multipass, version]
       changed_when: false
 
+      check_mode: false
     - name: Require the operator inputs in the environment (values suppressed)
       ansible.builtin.assert:
         that:
