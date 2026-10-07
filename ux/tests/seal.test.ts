@@ -41,6 +41,11 @@ describe('validation report evidence', () => {
   it('passes a fresh report', () => expect(reportEvidence(report, generated + 60_000).cluster.every(item => item.status === 'pass')).toBe(true))
   it('marks a stale report as needing attention', () => expect(reportEvidence(report, generated + REPORT_MAX_AGE_MS + 1).cluster[0]?.status).toBe('warn'))
   it('scopes seal-chain evidence separately', () => expect(reportEvidence(report, generated).sealChain.every(item => item.scope === 'seal-chain')).toBe(true))
+  it('adds identity evidence only when the report has it', () => {
+    expect(reportEvidence(report, generated).identity).toEqual([])
+    const withIdentity = parseValidation({ generated_at: '2026-10-07T12:00:00Z', identity: [{ id: 'ldap-raymon', label: 'Vault LDAP login · raymon', status: 'pass', detail: 'identity policies red-pass-admin' }] })
+    expect(reportEvidence(withIdentity, generated).identity.map(item => item.scope)).toEqual(['identity', 'identity'])
+  })
 })
 
 describe('operation feedback', () => {

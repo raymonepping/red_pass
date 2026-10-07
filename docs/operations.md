@@ -25,6 +25,24 @@ new VM from its own APFS clone under `/Users/Shared/red-pass-images` (outside
 `~/Documents`, which `multipassd` cannot read) with a per-node marker appended
 after the last qcow2 cluster, and deletes the clone afterwards.
 
+## Clocks
+
+Multipass guests fall minutes behind after the Mac sleeps, and RHEL's
+default `makestep 1.0 3` only steps at boot — chrony then slews for hours and
+freshly issued OIDC tokens look expired (`JWTExpired`). `rhel_prepare` sets
+`makestep 1.0 -1` and steps immediately when the offset exceeds 1 s; every
+node's clock offset is RHEL evidence in the console. If sign-in fails with an
+expiry error: `make converge TAGS=rhel`.
+
+## Identity operations
+
+| Need | Do |
+| --- | --- |
+| A lab password | `make identity-show-user PERSON=barend` |
+| Prove people | `make identity-verify` |
+| Add a person / group | edit `identity_users` / `identity_groups` in `ansible/group_vars/all.yml`, then `make identity` (password generated into Vault KV) |
+| Keycloak admin console | `https://<red-identity-1>:8443/admin` as `admin` (password in Vault KV, key `keycloak_admin_password`) |
+
 ## Restarts and the seal chain
 
 - **Cluster node restarted** — nothing to do. It auto-unseals through

@@ -24,6 +24,16 @@ for f in seal-init vault-init; do
   done < <(jq -r '(.keys_base64 // []) + (.keys // []) + (.recovery_keys_base64 // []) + (.recovery_keys // []) | .[]' "${json}")
 done
 
+# Identity secrets (prompt 07) live in Vault KV; include them when present.
+leader="$(jq -r '.nodes | to_entries[]? | select(.value.role == "leader") | .value.ipv4' "${BUILD_DIR}/ownership.json" 2>/dev/null || true)"
+if [[ -n "${leader}" && -f "${SECRETS_DIR}/platform-token" ]]; then
+  while IFS=$'\t' read -r key value; do
+    [[ -n "${key}" ]] && values["identity-${key}"]="${value}"
+  done < <(curl -fsS --cacert "${SECRETS_DIR}/tls/ca.crt" -H "X-Vault-Token: $(<"${SECRETS_DIR}/platform-token")" \
+    "https://${leader}:8200/v1/secret/data/red-pass/identity" 2>/dev/null |
+    jq -r '.data.data // {} | to_entries[] | "\(.key)\t\(.value)"' || true)
+fi
+
 targets=("$@")
 [[ ${#targets[@]} -gt 0 ]] || targets=("${BUILD_DIR}")
 hits=0

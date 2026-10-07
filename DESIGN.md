@@ -83,6 +83,17 @@ is the system's `vault-glass.css`; red_pass components live in
 | Reachable / Unreachable | `state-chip` (VM mode replaces Multipass states) | forced-command probe answered or not |
 | Service healthy / Down | fourth `posture-pill` with the activity glyph | service unit active + HTTPS 200 |
 
+## Sign-in and persona
+
+- `/signin` is a single ink card (the page's one dark pane) on the daylight
+  ground, with one light primary action "Continue with Keycloak"; errors from
+  the BFF appear as a critical-tint alert inside it.
+- Signed in, the topbar carries the **persona pill**: blue identity dot,
+  name, role in small caps, and "Sign out".
+- Controls a role may not use are not rendered (viewer: none; operator: start
+  /restart/stop/suspend; admin: also trash/recover/purge). The server enforces
+  the same rules (401/403).
+
 ## Components
 
 - **PosturePill** — glyph (box · chip · converge loop · lock) on a status tint,

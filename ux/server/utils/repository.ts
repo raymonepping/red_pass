@@ -32,6 +32,7 @@ export interface ValidationReport {
   generatedAt: string | null
   cluster: ReportCheck[]
   sealChain: ReportCheck[]
+  identity: ReportCheck[]
 }
 
 type UnknownRecord = Record<string, unknown>
@@ -91,12 +92,13 @@ function parseChecks(value: unknown): ReportCheck[] {
 
 export function parseValidation(raw: unknown): ValidationReport {
   const root = record(raw)
-  if (raw === null) return { readable: false, generatedAt: null, cluster: [], sealChain: [] }
+  if (raw === null) return { readable: false, generatedAt: null, cluster: [], sealChain: [], identity: [] }
   return {
     readable: true,
     generatedAt: isoOrNull(root.generated_at),
     cluster: parseChecks(root.cluster),
     sealChain: parseChecks(root.seal_chain),
+    identity: parseChecks(root.identity),
   }
 }
 

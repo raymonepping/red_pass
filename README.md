@@ -14,7 +14,9 @@ make lab
   2 converge    RHEL (RHSM, firewalld, SELinux, swap), Vault binary, TLS, licence, config
   3 bootstrap   seal Vault → transit token → cluster init → auto-unseal → platform token
   4 platform    Enterprise namespaces + KV v2 / Transit / PKI mounts via the Vault API
-  5 validate    read-only readiness contract → .build/validation.json
+  5 identity    OpenLDAP + Keycloak → Vault auth/oidc, auth/jwt, auth/ldap + external groups
+  6 validate    read-only readiness contract (incl. every person's login) → .build/validation.json
+  7 ux          deploy the console to red-ux-1 and sync its evidence
 ```
 
 ## Topology
@@ -26,6 +28,7 @@ make lab
 | `red-vault-2` | cluster | 2 CPU · 4G · 20G | transit → `red-vault-s` |
 | `red-vault-3` | cluster | 2 CPU · 4G · 20G | transit → `red-vault-s` |
 | `red-ux-1` | control-plane UI (observe-only VM mode) | 1 CPU · 2G · 10G | — |
+| `red-identity-1` | OpenLDAP + Keycloak (Podman Quadlet) | 2 CPU · 4G · 15G | — |
 
 The operator only ever unseals `red-vault-s` (one key). The cluster nodes hold
 a periodic, narrowly scoped Transit token and unseal themselves. See
@@ -86,6 +89,9 @@ vault namespace list
 | `make rhel-unregister` | Unregister guests from RHSM (`CONFIRM_RHSM_UNREGISTER=yes`) |
 | `make multi-pass-start` | Start multi_pass's VMs again |
 | `make ux-build` / `ux-deploy` / `ux-sync` | Build the UI bundle / deploy it to red-ux-1 / push fresh evidence |
+| `make identity` / `identity-verify` | People: LDAP + Keycloak + Vault auth / prove every login |
+| `make identity-show-user PERSON=<uid>` | Print one lab password (explicit, lab only) |
+| `make ui-start-auth` | Host console with Keycloak sign-in and role gating |
 
 ## Secret boundary
 
@@ -105,6 +111,32 @@ every task that touches one is `no_log: true` and `diff: false`.
 any paths you pass) without printing them. `.build/` holds only non-secret
 evidence: `ownership.json`, `convergence.json`, `validation.json`.
 
+## People (identity)
+
+`red-identity-1` runs OpenLDAP (directory, `ldaps://…:636`) and Keycloak
+(realm `red-pass`, `https://…:8443`), both as Podman containers under systemd
+Quadlet, both pinned by digest and native arm64. Keycloak federates the
+directory read-only; LDAP groups reach every client as the `groups` claim.
+
+| Person | Group | Vault policy | Console |
+| --- | --- | --- | --- |
+| `raymon` | `red-pass-admins` | `red-pass-admin` | everything |
+| `barend` | `red-pass-operators` | `red-pass-operator` (engineering KV + Transit) | view, start/restart/stop/suspend |
+| `viewer` | `red-pass-viewers` | `red-pass-viewer` (metadata only) | view |
+
+Vault accepts people through `auth/oidc` (browser and `vault login
+-method=oidc`), `auth/jwt` (Keycloak tokens presented directly) and
+`auth/ldap`; external identity groups per mount carry the policies. Every
+identity secret (LDAP admin/readonly, Keycloak admin, client secrets, the
+console's session key, each person's password) is generated once by Ansible
+into Vault KV `secret/red-pass/identity`. `make identity-show-user PERSON=raymon`
+prints one lab password; nothing else ever does.
+
+```bash
+make identity          # (re)converge people
+make identity-verify   # 11 checks: logins, exact policies, operator encrypt, viewer denied
+```
+
 ## Control plane UI
 
 Two ways to run the same glass console (fleet, live seal chain, four
@@ -112,8 +144,8 @@ evidence-backed indicators per VM):
 
 | Mode | Where | How | Lifecycle actions |
 | --- | --- | --- | --- |
-| **VM** | `https://<red-ux-1 ip>:3443` (lab-CA TLS) | deployed by `make lab` / `make ux-deploy` | none — observe-only |
-| **Host** | `http://127.0.0.1:3310` | `make ui-install && make ui-start` | start/stop/restart/suspend/delete/recover/purge via Multipass |
+| **VM** | `https://<red-ux-1 ip>:3443` (lab-CA TLS) | deployed by `make lab` / `make ux-deploy`; Keycloak sign-in required | none — observe-only |
+| **Host** | `http://127.0.0.1:3310` | `make ui-start` (open, loopback) or `make ui-start-auth` (Keycloak sign-in) | by role: operator start/restart/stop/suspend, admin also delete/recover/purge |
 
 In VM mode the UI reads the evidence Ansible pushes (`make ux-sync`, also the
 last step of `make lab`) and probes each node over SSH with a forced-command

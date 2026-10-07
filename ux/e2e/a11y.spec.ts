@@ -3,6 +3,7 @@
 // Mirrors Arcanium's tests/a11y.spec.ts.
 import { test, expect, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
+import { signInIfRequired } from './helpers'
 
 const ROUTES = ['/', '/instances/red-vault-1', '/instances/red-vault-s']
 const VIEWPORTS = [
@@ -28,6 +29,7 @@ async function scan(page: Page) {
 for (const viewport of VIEWPORTS) {
   test(`@a11y every screen at ${viewport.name}`, async ({ page }) => {
     await page.setViewportSize({ width: viewport.width, height: viewport.height })
+    await signInIfRequired(page)
     const found: string[] = []
     for (const route of ROUTES) {
       await open(page, route)
@@ -40,6 +42,7 @@ for (const viewport of VIEWPORTS) {
 
 test('@a11y evidence drawer and action dialog', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
+  await signInIfRequired(page)
   await open(page, '/')
   await page.locator('.instance-card').first().locator('.posture-pill').last().click()
   await expect(page.getByRole('dialog')).toBeVisible()

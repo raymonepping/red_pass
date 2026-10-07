@@ -172,10 +172,10 @@ function fromReport(items: ReportCheck[], scope: EvidenceCheck['scope'], at: str
  * never runs Ansible; it shows the report with its age, and a missing or
  * stale report is never treated as passing.
  */
-export function reportEvidence(report: ValidationReport, now = Date.now()): { cluster: EvidenceCheck[], sealChain: EvidenceCheck[] } {
+export function reportEvidence(report: ValidationReport, now = Date.now()): { cluster: EvidenceCheck[], sealChain: EvidenceCheck[], identity: EvidenceCheck[] } {
   if (!report.readable || !report.generatedAt) {
     const missing = check('report-missing', 'Validation report', 'unknown', 'ansible', 'No .build/validation.json yet — run make validate.', 'cluster')
-    return { cluster: [missing], sealChain: [{ ...missing, scope: 'seal-chain' }] }
+    return { cluster: [missing], sealChain: [{ ...missing, scope: 'seal-chain' }], identity: [{ ...missing, scope: 'identity' }] }
   }
   const at = report.generatedAt
   const ageMs = now - Date.parse(at)
@@ -185,5 +185,6 @@ export function reportEvidence(report: ValidationReport, now = Date.now()): { cl
   return {
     cluster: [freshness, ...fromReport(report.cluster, 'cluster', at)],
     sealChain: [{ ...freshness, id: 'report-age-seal', scope: 'seal-chain' }, ...fromReport(report.sealChain, 'seal-chain', at)],
+    identity: report.identity.length ? [{ ...freshness, id: 'report-age-identity', scope: 'identity' }, ...fromReport(report.identity, 'identity', at)] : [],
   }
 }

@@ -1,5 +1,5 @@
 export type EvidenceStatus = 'pass' | 'warn' | 'fail' | 'unknown'
-export type EvidenceScope = 'node' | 'cluster' | 'seal-chain'
+export type EvidenceScope = 'node' | 'cluster' | 'seal-chain' | 'identity'
 export type EvidenceSource = 'multipass' | 'ansible' | 'rhel' | 'vault'
 /** The fourth posture slot is `vault` on Vault nodes and `service` on service VMs. */
 export type PostureKind = 'provisioned' | 'rhel' | 'ansible' | 'vault' | 'service'

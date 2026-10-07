@@ -77,7 +77,9 @@ async function buildInstance(instance: MultipassInstance, repo: RepositoryEviden
   const ansible = ansiblePosture(instance, repo, labRole !== null, now)
   // Cluster-scope evidence goes to cluster nodes only; the seal Vault gets the
   // seal-chain evidence; service VMs are judged on their own service.
-  const scoped = labRole === 'seal' ? report.sealChain : vaultNode ? [...report.cluster, ...report.sealChain] : []
+  const scoped = labRole === 'seal'
+    ? report.sealChain
+    : vaultNode ? [...report.cluster, ...report.sealChain] : labRole === 'identity' ? report.identity : []
   const fourthEvidence = checks ? [...checks.vault, ...scoped] : []
   const labels = vaultNode
     ? { pass: 'Secured', warn: 'Attention required', fail: 'Not ready', unknown: 'Unknown' }

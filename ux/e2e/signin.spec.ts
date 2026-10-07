@@ -1,28 +1,15 @@
 // signin.spec.ts — Keycloak sign-in through the BFF for each person, the
 // persona pill, role gating (host mode) and an axe scan of the sign-in page.
 // Passwords are provided at run time by scripts/ui-signin-test.sh (from Vault).
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
+import { signIn } from './helpers'
 
 const PEOPLE = [
   { uid: 'viewer', role: 'viewer' },
   { uid: 'barend', role: 'operator' },
   { uid: 'raymon', role: 'admin' },
 ] as const
-
-async function signIn(page: Page, uid: string) {
-  const password = process.env[`RED_PASS_PW_${uid.toUpperCase()}`]
-  test.skip(!password, 'run through scripts/ui-signin-test.sh')
-  await page.goto('/')
-  await expect(page).toHaveURL(/\/signin$/)
-  await page.getByRole('link', { name: 'Continue with Keycloak' }).click()
-  await page.locator('#username').fill(uid)
-  await page.locator('#password').fill(password!)
-  await page.locator('#kc-login').click()
-  await page.waitForURL(url => !url.href.includes('/realms/'))
-  await expect(page.getByRole('alert')).toHaveCount(0)
-  await page.waitForSelector('.persona')
-}
 
 test('@a11y sign-in page', async ({ page }) => {
   await page.goto('/signin')
@@ -33,6 +20,7 @@ test('@a11y sign-in page', async ({ page }) => {
 
 for (const person of PEOPLE) {
   test(`sign-in and role gating: ${person.uid}`, async ({ page }) => {
+    test.skip(!process.env[`RED_PASS_PW_${person.uid.toUpperCase()}`], 'run through scripts/ui-signin-test.sh')
     await signIn(page, person.uid)
     await expect(page.locator('.persona-name')).toHaveText(person.uid)
     await expect(page.locator('.persona-role')).toHaveText(person.role)

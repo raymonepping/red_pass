@@ -105,6 +105,29 @@ Service VMs get a fourth indicator **Service** (their own unit + HTTPS
 health) instead of Vault; cluster and seal-chain evidence are never
 attributed to them.
 
+## Identity
+
+```mermaid
+flowchart LR
+  ldap[(OpenLDAP<br/>ou=people · ou=groups)] -- read-only federation<br/>group-ldap-mapper --> kc[Keycloak realm red-pass]
+  kc -- "id_token · groups claim" --> oidc[Vault auth/oidc<br/>browser + CLI]
+  kc -- "id_token presented directly" --> jwt[Vault auth/jwt]
+  ldap -- "ldaps bind (cn=readonly)" --> ldapauth[Vault auth/ldap]
+  oidc & jwt & ldapauth --> groups[external groups<br/>oidc-/jwt-/ldap-red-pass-*] --> pol[red-pass-admin / operator / viewer]
+  kc -- "Authorization Code + PKCE" --> ui[red_pass console BFF<br/>httpOnly session · role]
+```
+
+- `auth/jwt` exists because a mount configured with `oidc_client_id`
+  refuses direct JWT logins ("unsupported config type").
+- Vault external groups carry one alias each, so every directory group has
+  one external group per mount.
+- The console never sees a token: the Nitro BFF does the code exchange,
+  verifies the id_token (issuer, audience, nonce, RS/PS/ES algorithms) and
+  keeps only `{name, role}` in an encrypted, httpOnly, secure cookie. VM mode
+  refuses every API call without a session (no bypass).
+- Keycloak's issuer is fixed (`keycloak_public_url`); prompt 08 moves it to
+  the front door.
+
 ## Data flow and evidence
 
 | Artifact | Writer | Reader | Contains |
