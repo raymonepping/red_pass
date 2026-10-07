@@ -43,30 +43,32 @@ check_front_door() {
 }
 
 case "${1:-status}" in
-  trust)
-    if trusted "${CA}"; then
-      info "already trusted: $(subject "${CA}")"
-    else
-      info "trusting $(subject "${CA}") in the System keychain (asks for your password)"
-      sudo security add-trusted-cert -d -r trustRoot -k "${KEYCHAIN}" "${CA}"
-      info "trusted: $(subject "${CA}")"
-    fi
-    check_front_door
-    info "Quit and reopen Chrome (Cmd+Q) so it picks up the new trust."
-    ;;
-  untrust)
-    if present "${CA}"; then
-      sudo security delete-certificate -Z "$(sha1 "${CA}")" "${KEYCHAIN}" >/dev/null
-      info "removed: $(subject "${CA}")"
-    else
-      info "not in the keychain: $(subject "${CA}")"
-    fi
-    ;;
-  status)
-    if trusted "${CA}"; then info "trusted: $(subject "${CA}")"
-    elif present "${CA}"; then printf '\033[33m!!\033[0m in keychain but NOT trusted: %s — make trust\n' "$(subject "${CA}")" >&2
-    else printf '\033[33m!!\033[0m not trusted: %s — make trust\n' "$(subject "${CA}")" >&2; fi
-    check_front_door
-    ;;
-  *) die "usage: trust.sh trust|untrust|status" ;;
+trust)
+  if trusted "${CA}"; then
+    info "already trusted: $(subject "${CA}")"
+  else
+    info "trusting $(subject "${CA}") in the System keychain (asks for your password)"
+    sudo security add-trusted-cert -d -r trustRoot -k "${KEYCHAIN}" "${CA}"
+    info "trusted: $(subject "${CA}")"
+  fi
+  check_front_door
+  info "Quit and reopen Chrome (Cmd+Q) so it picks up the new trust."
+  ;;
+untrust)
+  if present "${CA}"; then
+    sudo security delete-certificate -Z "$(sha1 "${CA}")" "${KEYCHAIN}" >/dev/null
+    info "removed: $(subject "${CA}")"
+  else
+    info "not in the keychain: $(subject "${CA}")"
+  fi
+  ;;
+status)
+  if trusted "${CA}"; then
+    info "trusted: $(subject "${CA}")"
+  elif present "${CA}"; then
+    printf '\033[33m!!\033[0m in keychain but NOT trusted: %s — make trust\n' "$(subject "${CA}")" >&2
+  else printf '\033[33m!!\033[0m not trusted: %s — make trust\n' "$(subject "${CA}")" >&2; fi
+  check_front_door
+  ;;
+*) die "usage: trust.sh trust|untrust|status" ;;
 esac
