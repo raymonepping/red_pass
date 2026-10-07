@@ -1,7 +1,9 @@
 # Architecture
 
 red_pass rebuilds the multi_pass lab with a single automation engine. Every
-responsibility Terraform held in multi_pass has an Ansible owner here.
+responsibility Terraform held in multi_pass has an Ansible owner here, and the
+lab grew around it: a seal agent, people (OpenLDAP + Keycloak), a front door
+(HAProxy) and a console — eight RHEL VMs in all.
 
 ## Ownership: multi_pass → red_pass
 
@@ -11,7 +13,10 @@ responsibility Terraform held in multi_pass has an Ansible owner here.
 | Topology / inventory | Terraform outputs → `extra_vars` | `lab_inventory` role: `multipass list --format json` → `add_host`, filtered by a hard allow-list |
 | Ownership evidence | Terraform state | `.build/ownership.json`, written by `provision.yml` |
 | Guest OS + Vault | Ansible, triggered by Terraform | Ansible |
-| Unseal | Shamir 3/2, operator keys per node | Transit auto-unseal via `red-vault-s` (Shamir 1/1) |
+| Unseal | Shamir 3/2, operator keys per node | Transit auto-unseal: `red-vault-s` (Shamir 1/1) → seal agent on `red-agent-1` → nodes (no credential on the nodes) |
+| People | — | `identity_*` roles: OpenLDAP + Keycloak, Vault oidc/jwt/ldap, external groups |
+| Entry point | node addresses | `edge_proxy` role: HAProxy front door on `red-proxy-1` |
+| Console | host-only Nuxt app | `ux_app` role: observe-only console on `red-ux-1` (+ host mode) |
 | Namespaces + mounts | Terraform Vault provider | `vault_platform` role via the Vault HTTP API |
 | Drift detection | `terraform plan` | `make check-mode` / `make platform-check` (`changed=0` = no drift) |
 | "Last converged" | `terraform/ansible` `automation_digest` output | `.build/convergence.json` + `scripts/automation-digest.sh` |

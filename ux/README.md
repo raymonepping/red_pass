@@ -20,7 +20,7 @@ make ui-a11y         # axe WCAG 2.1 AA at 1440×900 and 390×844 (UI running)
 | **Vault secured** | live node probe (service, verified TLS, initialized, unsealed, expected seal type) + the last `make validate` report (cluster or seal-chain scope, with its age) | the Vault process running |
 
 The seal Vault is judged against seal-node expectations (Shamir, unsealed,
-Transit key, seal-token TTL); cluster evidence is never attributed to it.
+Transit key, seal agent token and rotation); cluster evidence is never attributed to it.
 
 ## Modes
 

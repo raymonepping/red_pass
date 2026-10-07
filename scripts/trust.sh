@@ -22,8 +22,14 @@ openssl x509 -in "${CA}" -noout -ext basicConstraints 2>/dev/null | grep -q 'CA:
 subject() { openssl x509 -in "$1" -noout -subject | sed 's/^subject= *//'; }
 sha1() { openssl x509 -in "$1" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d :; }
 present() { security find-certificate -a -Z "${KEYCHAIN}" 2>/dev/null | grep -qi "SHA-1 hash: $(sha1 "$1")"; }
-# macOS's own verdict: a certificate can sit in the keychain untrusted.
-trusted() { security verify-cert -c "$1" -q >/dev/null 2>&1; }
+cn() { openssl x509 -in "$1" -noout -subject -nameopt multiline | sed -n 's/^ *commonName *= *//p'; }
+# Trusted = in the System keychain AND listed in the admin trust settings.
+# (`security verify-cert -c <ca>` is useless here: a self-signed root always
+# "verifies" against itself, trusted or not.)
+trusted() {
+  present "$1" || return 1
+  security dump-trust-settings -d 2>/dev/null | grep -qF "$(cn "$1")"
+}
 
 # The front door's address, from the ownership manifest (if the proxy exists).
 front_door() { jq -r '.nodes | to_entries[]? | select(.value.role == "proxy") | .value.ipv4' "${BUILD_DIR}/ownership.json" 2>/dev/null || true; }

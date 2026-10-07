@@ -76,7 +76,7 @@ is the system's `vault-glass.css`; red_pass components live in
 | Converged / Outdated | `tone-positive` / `tone-warning` | stamp digest vs `scripts/automation-digest.sh` |
 | Secured | `tone-positive` | live node probe (service, TLS, initialized, unsealed, expected seal type) + validation report |
 | Not ready | `tone-critical` | any failing Vault check (e.g. sealed) |
-| Seal chain n/3 | topbar `cluster-pill healthy/degraded/critical` | live `sys/seal-status` of all four nodes |
+| Seal chain n/3 | topbar `cluster-pill healthy/degraded/critical` | live `sys/seal-status` of the four Vault nodes and the agent |
 | Seal Vault sealed | `chain-node is-fail` + hint "run make unseal" | live probe |
 | Validation report stale | `tone-warning` row "Validation report age" | `.build/validation.json` older than 24 h |
 | VM mode | topbar `env-badge` **VM**, hero "Observe-only" line, no lifecycle controls | `RED_PASS_MODE=vm` in red-ux-1 |

@@ -13,17 +13,17 @@ check: deps ## Static checks: tools, shell + playbook syntax, secret paths
 deps: ## Install pinned Ansible collections into .cache
 	./scripts/ansible-deps.sh
 
-provision: deps ## Launch/start the four red-vault VMs, SSH trust, ownership manifest
+provision: deps ## Launch/start the eight red_pass VMs, SSH trust, ownership manifest
 	$(RUN) provision
 
-ping: ## Verified SSH ping of all four VMs
+ping: ## Verified SSH ping of all red_pass VMs
 	$(RUN) ping
 
 .PHONY: converge bootstrap unseal
-converge: deps ## RHEL prep, Vault install/TLS/license/config on all four nodes (TAGS=...)
+converge: deps ## RHEL prep on every VM; Vault install/TLS/licence/config on the Vault nodes (TAGS=...)
 	$(RUN) converge
 
-bootstrap: ## Seal chain: seal Vault, transit auto-unseal, cluster init, platform token
+bootstrap: ## Seal Vault, cluster init (recovery keys), auto-unseal, platform token
 	$(RUN) bootstrap
 
 unseal: ## Unseal red-vault-s (one key); the cluster auto-unseals
@@ -39,7 +39,7 @@ platform-check: ## Report platform drift without changing anything
 validate: ## Read-only end-to-end validation, writes .build/validation.json
 	$(RUN) validate
 
-lab: ## The whole phased workflow: provision → converge → bootstrap → platform → validate
+lab: ## The whole phased workflow: provision → converge → bootstrap → platform → agent → proxy → identity → ux → validate
 	./scripts/lab.sh
 
 check-mode: ## --check --diff over provision, converge, bootstrap, platform (expect changed=0)
@@ -52,7 +52,7 @@ status: ## vault status for every red_pass node
 digest: ## Print the current automation digest
 	@./scripts/automation-digest.sh
 
-destroy: ## Delete + purge ONLY the four red-vault VMs (confirmation required)
+destroy: ## Delete + purge ONLY the red_pass VMs (confirmation required)
 	$(RUN) destroy
 
 rhel-unregister: ## Unregister guests from RHSM (CONFIRM_RHSM_UNREGISTER=yes)
