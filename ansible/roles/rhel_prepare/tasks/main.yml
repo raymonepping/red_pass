@@ -152,9 +152,27 @@
   when: rhel_chrony_conf is changed or rhel_chrony_pool is changed
 
 # With makestep 1.0 -1 the next measurement steps the clock; wait for it
-# (corrections below 1 s), checking every 2 s for up to a minute.
-- name: Wait until the clock is synchronised within a second
-  ansible.builtin.command:
-    argv: [chronyc, waitsync, "30", "1", "0", "2"]
-  changed_when: false
-  check_mode: false
+# (corrections below 1 s). After a large jump (host sleep) chrony can mark
+# every source unusable and stay "Not synchronised"; a restart re-runs the
+# initial burst and steps. Time sync is maintenance, not configuration, so it
+# is never reported as a change (check mode stays meaningful).
+- name: Keep the clock synchronised
+  block:
+    - name: Wait until the clock is synchronised within a second
+      ansible.builtin.command:
+        argv: [chronyc, waitsync, "15", "1", "0", "2"]
+      changed_when: false
+      check_mode: false
+  rescue:
+    - name: Restart chronyd after a clock jump
+      ansible.builtin.systemd_service:
+        name: chronyd
+        state: restarted
+      changed_when: false
+      check_mode: false
+
+    - name: Wait again until the clock is synchronised
+      ansible.builtin.command:
+        argv: [chronyc, waitsync, "30", "1", "0", "2"]
+      changed_when: false
+      check_mode: false

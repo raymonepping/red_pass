@@ -58,3 +58,23 @@ describe('front-door probe parsing', () => {
     expect(parseFrontDoor('x;;BAD NAME:a:UP;ok:srv:<script>')).toEqual([{ backend: 'ok', server: 'srv', status: 'UNKNOWN' }])
   })
 })
+
+describe('front door: standby is not down', () => {
+  it('labels an unsealed non-active Vault node on the write path as standby', async () => {
+    const { frontDoorFrom } = await import('../server/utils/control-plane')
+    const proxy = {
+      summary: { name: 'red-proxy-1', labRole: 'proxy', ipv4: ['10.0.0.9'] },
+      checks: { frontDoor: [
+        { backend: 'vault_active', server: 'red-vault-1', status: 'UP' },
+        { backend: 'vault_active', server: 'red-vault-2', status: 'DOWN' },
+        { backend: 'vault_active', server: 'red-vault-3', status: 'DOWN' },
+        { backend: 'vault_any', server: 'red-vault-1', status: 'UP' },
+        { backend: 'vault_any', server: 'red-vault-2', status: 'UP' },
+        { backend: 'vault_any', server: 'red-vault-3', status: 'DOWN' },
+      ] },
+    } as unknown as Parameters<typeof frontDoorFrom>[0][number]
+    const write = frontDoorFrom([proxy])!.entries.find(e => e.key === 'vault')!
+    expect(write.servers.map(s => s.status)).toEqual(['UP', 'STANDBY', 'DOWN'])
+    expect(write.url).toBe('https://10.0.0.9:8200')
+  })
+})

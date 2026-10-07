@@ -24,6 +24,7 @@ for (const person of PEOPLE) {
     await signIn(page, person.uid)
     await expect(page.locator('.persona-name')).toHaveText(person.uid)
     await expect(page.locator('.persona-role')).toHaveText(person.role)
+    await page.goto('/machines')
     await page.waitForSelector('.instance-card')
     const vm = await page.locator('.env-badge', { hasText: 'VM' }).count() > 0
     const card = page.locator('.instance-card', { hasText: 'red-vault-2' })

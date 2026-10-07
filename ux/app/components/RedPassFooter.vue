@@ -1,26 +1,9 @@
 <script setup lang="ts">
 // RedPassFooter.vue — in-flow footer for every red_pass page.
 // Ported from project_durin/DurinFooter.vue; colours use --vg- tokens only.
+// The indicator key lives in the sidebar (AppShell), not here.
 
 const year = new Date().getFullYear()
-
-const keyOpen = ref(false)
-onMounted(() => {
-  try { keyOpen.value = localStorage.getItem('red-pass:footer-key') === '1' } catch { /* stays folded */ }
-})
-function toggleKey() {
-  keyOpen.value = !keyOpen.value
-  try { localStorage.setItem('red-pass:footer-key', keyOpen.value ? '1' : '0') } catch { /* ignore */ }
-}
-
-const indicatorKey = [
-  { swatch: 'var(--vg-healthy)',          label: 'Provisioned / Healthy / Converged / Secured' },
-  { swatch: 'var(--vg-pending)',           label: 'Attention / Outdated' },
-  { swatch: 'var(--vg-critical)',          label: 'Not ready / Down / Failed' },
-  { swatch: 'var(--vg-text-dim)',          label: 'Unknown / Never run' },
-  { swatch: 'var(--vg-hue-violet)',        label: 'Seal Vault' },
-  { swatch: 'var(--vg-info)',              label: 'Service VM' },
-] as const
 
 const words = ['Provision', 'Converge', 'Seal', 'Prove'] as const
 
@@ -53,29 +36,6 @@ const links = [
     <!-- aluminium rule with a blue glint at centre -->
     <div class="rp-footer__rail" aria-hidden="true" />
 
-    <!-- indicator key (folded) -->
-    <div class="rp-footer__inner rp-footer__key-row">
-      <button
-        type="button"
-        class="rp-footer__key-toggle"
-        :aria-expanded="keyOpen"
-        aria-controls="rp-footer-key"
-        @click="toggleKey"
-      >
-        <svg viewBox="0 0 12 12" class="rp-footer__chevron" :class="{ 'rp-footer__chevron--open': keyOpen }" aria-hidden="true">
-          <path d="M4.5 3 8 6l-3.5 3" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-        </svg>
-        Indicator key
-      </button>
-      <div v-show="keyOpen" id="rp-footer-key" class="rp-footer__key-items">
-        <span v-for="k in indicatorKey" :key="k.label" class="rp-footer__key-item">
-          <span class="rp-footer__swatch" :style="{ background: k.swatch }" aria-hidden="true" />
-          {{ k.label }}
-        </span>
-      </div>
-    </div>
-
-    <!-- tagline + copyright + socials -->
     <div class="rp-footer__inner rp-footer__body">
       <p class="rp-footer__tagline">Ansible builds it. Vault seals it. People prove it.</p>
 

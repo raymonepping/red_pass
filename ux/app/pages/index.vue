@@ -1,50 +1,19 @@
 <script setup lang="ts">
-import type { PostureCategory } from '../../shared/types'
 import { isVaultRole } from '#shared/posture'
+import { paneNeedsAttention, paneSummaryLine } from '#shared/vm-pane'
 
 useHead({ title: 'Fleet · red_pass' })
-const config = useRuntimeConfig()
-const { plane, checking, failed, refresh } = usePlane()
-const selectedEvidence = ref<PostureCategory | null>(null)
-const purgeOpen = ref(false)
-const purgePending = ref(false)
-const { selectedAction, selectedInstance, pending, toast, requestAction, closeAction, confirmAction } = useOperations(() => refresh())
+const { plane, checking, failed, refresh } = usePlaneLive()
 
-const ordered = computed(() => [...(plane.value?.instances || [])].sort((a, b) => {
-  const rank = (role: string | null) => role === 'seal' ? 0 : isVaultRole(role) ? 1 : role ? 2 : 3
-  return rank(a.labRole) - rank(b.labRole) || a.name.localeCompare(b.name)
-}))
+const ordered = computed(() => [...(plane.value?.instances || [])].sort((a, b) => a.name.localeCompare(b.name)))
 const observeOnly = computed(() => plane.value?.mode === 'vm')
-const { can } = useAuth()
-const canAdmin = can('admin')
 const lab = computed(() => ordered.value.filter(item => item.labRole && !item.deleted))
 const vaultNodes = computed(() => lab.value.filter(item => isVaultRole(item.labRole)))
 const secured = computed(() => vaultNodes.value.filter(item => item.posture.vault.status === 'Secured').length)
 const voters = computed(() => plane.value?.cluster.find(item => item.id === 'report-cluster-raft_voters'))
 const observed = computed(() => plane.value?.observedAt ? new Date(plane.value.observedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—')
-
-let timer: ReturnType<typeof setInterval> | undefined
-onMounted(async () => {
-  await refresh(false)
-  void refresh()
-  timer = setInterval(() => refresh(), Number(config.public.refreshSeconds) * 1000)
-})
-onBeforeUnmount(() => clearInterval(timer))
-
-async function purge(confirmation: string) {
-  purgePending.value = true
-  try {
-    const result = await $fetch<{ message: string }>('/api/purge', { method: 'POST', body: { confirmation } })
-    toast.value = { type: 'success', message: result.message }
-    purgeOpen.value = false
-    await refresh()
-  } catch (err) {
-    const response = err as { data?: { statusMessage?: string } }
-    toast.value = { type: 'error', message: response.data?.statusMessage || 'Purge failed.' }
-  } finally {
-    purgePending.value = false
-  }
-}
+const needsAttention = computed(() => paneNeedsAttention(ordered.value))
+const summaryLine = computed(() => paneSummaryLine(ordered.value, observeOnly.value))
 </script>
 
 <template>
@@ -87,25 +56,17 @@ async function purge(confirmation: string) {
 
     <template v-if="plane?.available">
       <SealChainPanel :chain="plane.sealChain" :checking="checking" />
-      <FrontDoorPanel v-if="plane.frontDoor" :door="plane.frontDoor" />
-
-      <VmListPane
-        :instances="ordered"
-        :total="plane.summary.total"
-        :running="plane.summary.running"
-        :deleted="plane.summary.deleted"
-        :observe-only="observeOnly"
-        :checking="checking"
-        :can-admin="canAdmin"
-        @evidence="selectedEvidence = $event"
-        @action="requestAction"
-        @purge="purgeOpen = true"
-      />
+      <nav class="fleet-links" aria-label="More of the lab">
+        <NuxtLink to="/machines" class="fleet-link vg-glass" :class="{ attention: needsAttention }">
+          <strong>Virtual machines</strong>
+          <span>{{ summaryLine }}</span>
+        </NuxtLink>
+        <NuxtLink v-if="plane.frontDoor" to="/front-door" class="fleet-link vg-glass">
+          <strong>Front door</strong>
+          <span>{{ plane.frontDoor.entries.length }} entry points on {{ plane.frontDoor.node }}</span>
+        </NuxtLink>
+      </nav>
     </template>
 
-    <EvidencePanel :category="selectedEvidence" @close="selectedEvidence = null" />
-    <ActionDialog :action="selectedAction" :instance="selectedInstance" :pending="pending" @close="closeAction" @confirm="confirmAction" />
-    <PurgeDialog :open="purgeOpen" :pending="purgePending" @close="purgeOpen = false" @confirm="purge" />
-    <Transition name="fade"><div v-if="toast" class="toast" :class="toast.type" role="status">{{ toast.message }}</div></Transition>
   </div>
 </template>

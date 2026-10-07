@@ -182,6 +182,19 @@ last step of `make lab`) and probes each node over SSH with a forced-command
 key that can only run the read-only probe, only from red-ux-1. See
 [ux/README.md](ux/README.md) and [DESIGN.md](DESIGN.md).
 
+### Screens
+
+| Page | What it shows |
+| --- | --- |
+| `/signin` | Keycloak sign-in (one ink card) |
+| `/` Fleet | hero tiles, the three-hop seal chain, links to VMs and front door |
+| `/machines` | every VM with its four indicators; actions by role (host mode) |
+| `/front-door` | each public entry point, its URL and live backends |
+| `/instances/<name>` | one VM: lifecycle indicators, resources, ownership, Vault/service and cluster evidence |
+
+The sidebar carries the Indicator key; every page ends with the signature
+footer.
+
 ## Recovery and operations
 
 See [docs/operations.md](docs/operations.md): resume points, restarts and the

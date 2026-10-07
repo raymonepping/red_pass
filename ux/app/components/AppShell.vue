@@ -1,6 +1,22 @@
 <script setup lang="ts">
+import { attentionCount } from '#shared/vm-pane'
 const route = useRoute()
 const { plane } = usePlane()
+const attention = computed(() => attentionCount(plane.value?.instances ?? []))
+const nav = computed(() => [
+  { to: '/', label: 'Fleet', icon: 'fleet', active: route.path === '/' },
+  { to: '/machines', label: 'Virtual machines', icon: 'vms', active: route.path === '/machines' || route.path.startsWith('/instances'), badge: attention.value },
+  ...(plane.value?.frontDoor ? [{ to: '/front-door', label: 'Front door', icon: 'door', active: route.path === '/front-door' }] : []),
+])
+// One swatch per state colour, named once (no state depends on colour alone).
+const indicatorKey = [
+  { tone: 'pass', label: 'Provisioned · Healthy · Converged · Secured' },
+  { tone: 'warn', label: 'Attention · Outdated' },
+  { tone: 'fail', label: 'Not ready · Down · Failed' },
+  { tone: 'unknown', label: 'Unknown · Never run' },
+  { tone: 'seal', label: 'Seal Vault' },
+  { tone: 'service', label: 'Service VM' },
+] as const
 const { session } = useAuth()
 const person = computed(() => session.value?.authenticated ? session.value : null)
 
@@ -14,7 +30,9 @@ const chain = computed(() => {
   return { tone: ok === value.links.length && ok > 0 ? 'healthy' : 'degraded', label: `Seal chain ${ok}/${value.links.length}` }
 })
 const mode = computed(() => plane.value?.mode ?? 'host')
-const title = computed(() => route.path.startsWith('/instances/') ? decodeURIComponent(String(route.params.name || 'Instance')) : 'Fleet')
+const title = computed(() => route.path.startsWith('/instances/')
+  ? decodeURIComponent(String(route.params.name || 'Instance'))
+  : route.path === '/machines' ? 'Virtual machines' : route.path === '/front-door' ? 'Front door' : 'Fleet')
 </script>
 
 <template>
@@ -29,11 +47,22 @@ const title = computed(() => route.path.startsWith('/instances/') ? decodeURICom
         <span class="brand-name">red_pass</span>
       </NuxtLink>
       <nav class="sidebar-nav" aria-label="Primary navigation">
-        <NuxtLink to="/" class="nav-item" :class="{ active: route.path === '/' || route.path.startsWith('/instances') }">
-          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="2" /><rect x="3" y="13" width="18" height="7" rx="2" /><path d="M7 7.5h.01M7 16.5h.01" /></svg></span>
-          <span class="nav-label">Fleet</span>
+        <NuxtLink v-for="item in nav" :key="item.to" :to="item.to" class="nav-item" :class="{ active: item.active }" :aria-current="item.active ? 'page' : undefined">
+          <span class="nav-icon">
+            <svg v-if="item.icon === 'fleet'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4" /></svg>
+            <svg v-else-if="item.icon === 'vms'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="2" /><rect x="3" y="13" width="18" height="7" rx="2" /><path d="M7 7.5h.01M7 16.5h.01" /></svg>
+            <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v16M2 21h20M14 12h.01" /></svg>
+          </span>
+          <span class="nav-label">{{ item.label }}</span>
+          <span v-if="item.badge" class="nav-badge" :aria-label="`${item.badge} need attention`">{{ item.badge }}</span>
         </NuxtLink>
       </nav>
+      <section class="indicator-key" aria-labelledby="indicator-key-title">
+        <h2 id="indicator-key-title">Indicator key</h2>
+        <ul>
+          <li v-for="k in indicatorKey" :key="k.tone"><span class="key-swatch" :class="`key-${k.tone}`" aria-hidden="true" />{{ k.label }}</li>
+        </ul>
+      </section>
       <div class="sidebar-footer">
         <p class="foot-title">Local control plane</p>
         <p class="foot-meta">{{ mode === 'vm' ? 'red-ux-1 · observe-only' : '127.0.0.1 · host console' }}</p>
@@ -48,6 +77,9 @@ const title = computed(() => route.path.startsWith('/instances/') ? decodeURICom
           <div class="topbar-left">
             <NuxtLink to="/" class="mobile-brand" aria-label="red_pass home">red_pass</NuxtLink>
             <p class="page-title">{{ title }}</p>
+            <nav class="mobile-nav" aria-label="Sections">
+              <NuxtLink v-for="item in nav" :key="item.to" :to="item.to" :class="{ active: item.active }" :aria-current="item.active ? 'page' : undefined">{{ item.label === 'Virtual machines' ? 'VMs' : item.label }}</NuxtLink>
+            </nav>
           </div>
           <div class="topbar-right">
             <span class="cluster-pill" :class="chain.tone" role="status">
@@ -106,6 +138,21 @@ const title = computed(() => route.path.startsWith('/instances/') ? decodeURICom
 .nav-item.active .nav-icon { color: var(--vg-action-primary); }
 .nav-icon { width: 16px; height: 16px; display: flex; }
 .nav-icon svg { width: 16px; height: 16px; }
+.nav-badge { min-width: 18px; padding: 0 6px; border-radius: 100px; text-align: center; font-size: 10.5px; font-weight: 700; line-height: 18px; background: var(--vg-pending-bg); color: var(--vg-pending); border: 1px solid color-mix(in srgb, var(--vg-hue-amber) 30%, transparent); }
+.indicator-key { margin: 0 12px 12px; padding: 10px 12px; border-radius: 10px; background: var(--vg-well); border: 1px solid var(--vg-border-subtle); }
+.indicator-key h2 { margin: 0 0 6px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--vg-text-muted); }
+.indicator-key ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.indicator-key li { display: flex; align-items: flex-start; gap: 7px; font-size: 11.5px; line-height: 1.35; color: var(--vg-text-secondary); }
+.key-swatch { width: 9px; height: 9px; margin-top: 3px; border-radius: 3px; flex-shrink: 0; }
+.key-pass { background: var(--vg-healthy); }
+.key-warn { background: var(--vg-pending); }
+.key-fail { background: var(--vg-critical); }
+.key-unknown { background: var(--vg-text-dim); }
+.key-seal { background: var(--vg-hue-violet); }
+.key-service { background: var(--vg-info); }
+.mobile-nav { display: none; gap: 4px; }
+.mobile-nav a { padding: 4px 9px; border-radius: 8px; font-size: 12px; font-weight: 600; color: var(--vg-text-secondary); }
+.mobile-nav a.active { background: rgba(255, 255, 255, 0.85); color: var(--vg-text-primary); box-shadow: inset 0 0 0 1px rgba(15, 26, 42, 0.08); }
 .sidebar-footer { padding: 14px 16px; border-top: 1px solid var(--vg-border-subtle); }
 .foot-title { margin: 0; font-size: 12px; font-weight: 650; color: var(--vg-text-secondary); }
 .foot-meta { margin: 2px 0 0; font-size: 11.5px; color: var(--vg-text-muted); line-height: 1.45; }
@@ -143,6 +190,10 @@ const title = computed(() => route.path.startsWith('/instances/') ? decodeURICom
 
 @media (max-width: 900px) {
   .vg-sidebar { display: none; }
+  /* Brand + status on the first row, the section nav on its own row. */
+  .vg-topbar { height: auto; flex-wrap: wrap; padding-top: 8px; padding-bottom: 8px; row-gap: 6px; }
+  .topbar-left { display: contents; }
+  .mobile-nav { display: flex; order: 3; flex-basis: 100%; }
   .mobile-brand { display: inline; }
   .page-title { display: none; }
 }

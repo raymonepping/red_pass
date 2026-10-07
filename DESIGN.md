@@ -94,6 +94,25 @@ is the system's `vault-glass.css`; red_pass components live in
   /restart/stop/suspend; admin: also trash/recover/purge). The server enforces
   the same rules (401/403).
 
+## Navigation, indicator key and footer (prompt 10)
+
+- **Sidebar rail**: Fleet (`/` — hero, seal chain, links), **Virtual machines**
+  (`/machines` — every VM card; an amber badge counts red_pass VMs that need a
+  look), **Front door** (`/front-door` — entry points with live backends;
+  shown when the proxy exists). Each page has exactly one ink hero; the
+  hero's status line is green when all is well and amber otherwise.
+- **Indicator key**, pinned bottom-left of the rail: one swatch per state
+  colour, named once (no state depends on colour alone).
+- On phones the rail is hidden; the topbar carries the section nav on its own
+  row.
+- **Footer** (`RedPassFooter.vue`, first version by IBM Bob, ported from
+  Durin): aluminium rule with a blue glint, *"Ansible builds it. Vault seals
+  it. People prove it."*, `© <year> Raymon Epping` with the clearing sweep
+  (reduced-motion safe), Provision · Converge · Seal · Prove, and the four
+  social links. In flow on every page, including sign-in.
+- Front door chips: green up, red down, neutral **standby** for a healthy
+  Vault node on the write path (only the leader takes writes).
+
 ## Components
 
 - **PosturePill** — glyph (box · chip · converge loop · lock) on a status tint,

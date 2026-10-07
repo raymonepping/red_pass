@@ -253,7 +253,8 @@
 @media (max-width: 960px) {
   .detail-grid { grid-template-columns: 1fr; }
   .lifecycle { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .chain { grid-template-columns: 1fr; gap: 10px; }
+  /* Must also beat the three-hop :has() layout (higher specificity). */
+  .chain, .chain:has(> .chain-node + .chain-wire + .chain-node) { grid-template-columns: 1fr; gap: 10px; }
   .chain-wire { display: none; }
 }
 @media (max-width: 520px) {
@@ -414,3 +415,16 @@
 }
 .footer-word:hover { color: var(--vg-text-secondary); transform: translateY(-1px); }
 .footer-word i { margin: 0 6px; font-style: normal; color: var(--vg-border-strong); }
+
+/* ── Fleet links, hero status, flat VM list (prompt 10 follow-up) ───────── */
+.fleet-links { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.fleet-link { display: flex; flex-direction: column; gap: 2px; padding: 14px 16px; color: var(--vg-text-primary); }
+.fleet-link strong { font-size: 14px; font-weight: 700; }
+.fleet-link span { font-size: 12.5px; color: var(--vg-text-muted); }
+.fleet-link:hover { border-color: var(--vg-border-strong); color: var(--vg-text-primary); }
+.fleet-link.attention { border-color: color-mix(in srgb, var(--vg-hue-amber) 40%, transparent); }
+.fleet-link.attention span { color: var(--vg-pending); }
+.hero-status { margin: 0; font-size: 13px; font-weight: 600; color: var(--vg-healthy); }
+.hero-status.attention { color: var(--vg-pending); }
+.vm-pane--flat { padding: 0; background: none; border: none; box-shadow: none; }
+.door-note { font-family: var(--font-sans); font-size: 10.5px; font-weight: 600; color: var(--vg-text-muted); }

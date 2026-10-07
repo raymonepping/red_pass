@@ -2,7 +2,9 @@
 import type { InstanceSummary, PostureCategory } from '../../shared/types'
 import { paneNeedsAttention, paneSummaryLine } from '#shared/vm-pane'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
+  /** false on the Virtual machines page: always open, no fold header. */
+  foldable?: boolean
   instances: InstanceSummary[]
   total: number
   running: number
@@ -10,7 +12,7 @@ const props = defineProps<{
   observeOnly: boolean
   checking: boolean
   canAdmin: boolean
-}>()
+}>(), { foldable: true })
 
 const emit = defineEmits<{
   evidence: [PostureCategory]
@@ -32,8 +34,9 @@ function toggle() {
 const filter = ref<'instances' | 'trash'>('instances')
 
 // ── Computed summary text ────────────────────────────────────────────────────
-const needsAttention = computed(() => paneNeedsAttention(props.instances, props.observeOnly))
-const summaryLine = computed(() => paneSummaryLine(props.instances, props.observeOnly, needsAttention.value))
+const needsAttention = computed(() => paneNeedsAttention(props.instances))
+const summaryLine = computed(() => paneSummaryLine(props.instances, props.observeOnly))
+const shown = computed(() => !props.foldable || open.value)
 
 const visible = computed(() =>
   props.instances.filter(i => filter.value === 'trash' ? i.deleted : !i.deleted),
@@ -41,9 +44,10 @@ const visible = computed(() =>
 </script>
 
 <template>
-  <section class="vm-pane vg-glass" :class="{ 'vm-pane--attention': needsAttention }" aria-labelledby="vm-pane-title">
+  <section class="vm-pane" :class="{ 'vg-glass': foldable, 'vm-pane--attention': foldable && needsAttention, 'vm-pane--flat': !foldable }" :aria-labelledby="foldable ? 'vm-pane-title' : undefined" :aria-label="foldable ? undefined : 'Virtual machines'">
     <!-- ── Pane header (always visible) ──────────────────────────────────── -->
     <button
+      v-if="foldable"
       type="button"
       class="vm-pane__header"
       :aria-expanded="open"
@@ -70,7 +74,7 @@ const visible = computed(() =>
     </button>
 
     <!-- ── Pane body (visible when open) ─────────────────────────────────── -->
-    <div v-show="open" id="vm-pane-body">
+    <div v-show="shown" id="vm-pane-body" :class="{ 'vm-pane__body--flat': !foldable }">
       <div v-if="!observeOnly" class="toolbar">
         <div class="segmented" role="tablist" aria-label="Instance list">
           <button type="button" role="tab" :aria-selected="filter === 'instances'" :class="{ active: filter === 'instances' }" @click="filter = 'instances'">

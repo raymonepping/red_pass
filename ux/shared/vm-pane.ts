@@ -2,49 +2,43 @@ import type { InstanceSummary, PostureCategory } from './types'
 
 type ToneValue = PostureCategory['tone']
 
+/** Up = Multipass "Running" (host mode) or probe-answered "Reachable" (VM mode). */
+const isUp = (state: string | undefined) => ['running', 'reachable'].includes((state || '').toLowerCase())
+
 /**
- * Returns true when any non-deleted instance has a critical or warning posture
- * tone, or when a lab instance is unreachable in VM mode.
+ * True when any non-deleted red_pass VM has a critical or warning indicator,
+ * or is not up. Foreign VMs (not red_pass) never raise attention.
  */
-export function paneNeedsAttention(instances: InstanceSummary[], observeOnly: boolean): boolean {
-  return instances.some(i => {
-    if (i.deleted) return false
+export function paneNeedsAttention(instances: InstanceSummary[]): boolean {
+  return instances.some((i) => {
+    if (i.deleted || !i.labRole) return false
     const tones: ToneValue[] = Object.values(i.posture).map(p => p.tone)
-    if (tones.includes('critical') || tones.includes('warning')) return true
-    if (observeOnly && i.labRole && i.state?.toLowerCase() !== 'running') return true
-    return false
+    return tones.includes('critical') || tones.includes('warning') || !isUp(i.state)
   })
 }
 
+/** VMs that need a look, for the sidebar badge. */
+export function attentionCount(instances: InstanceSummary[]): number {
+  return instances.filter(i => !i.deleted && i.labRole && (
+    !isUp(i.state) || Object.values(i.posture).some(p => p.tone === 'critical' || p.tone === 'warning'))).length
+}
+
 /**
- * Builds the compact summary line shown in the pane header.
- * Format: "<n> red_pass VMs · <n> running|reachable · <status> · <n> not red_pass"
+ * Compact summary line: "<n> red_pass VMs · <n> running|reachable · <status> · <n> not red_pass".
  */
-export function paneSummaryLine(
-  instances: InstanceSummary[],
-  observeOnly: boolean,
-  needsAttention: boolean,
-): string {
+export function paneSummaryLine(instances: InstanceSummary[], observeOnly: boolean): string {
   const nonDeleted = instances.filter(i => !i.deleted)
-  const labCount = nonDeleted.filter(i => i.labRole).length
-  const foreignCount = nonDeleted.filter(i => !i.labRole).length
-  const total = labCount + foreignCount
+  const lab = nonDeleted.filter(i => i.labRole)
+  const foreignCount = nonDeleted.length - lab.length
+  const up = lab.filter(i => isUp(i.state)).length
 
-  const activeLabel = observeOnly ? 'reachable' : 'running'
-  const active = nonDeleted.filter(i => i.state?.toLowerCase() === 'running').length
-
-  const parts: string[] = [
-    `${total} red_pass VMs`,
-    `${active} ${activeLabel}`,
-  ]
-
-  if (needsAttention) {
-    const hasFail = nonDeleted.some(i => Object.values(i.posture).some(p => p.tone === 'critical'))
+  const parts = [`${lab.length} red_pass VMs`, `${up} ${observeOnly ? 'reachable' : 'running'}`]
+  if (paneNeedsAttention(instances)) {
+    const hasFail = lab.some(i => !isUp(i.state) || Object.values(i.posture).some(p => p.tone === 'critical'))
     parts.push(hasFail ? 'needs attention' : 'check indicators')
   } else {
-    parts.push('all secured')
+    parts.push(lab.length ? 'all green' : 'none provisioned')
   }
-
   if (foreignCount > 0) parts.push(`${foreignCount} not red_pass`)
   return parts.join(' · ')
 }

@@ -34,7 +34,7 @@ onBeforeUnmount(() => clearInterval(timer))
 
 <template>
   <div>
-    <NuxtLink to="/" class="back-link"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m10 3-5 5 5 5" /></svg> Fleet</NuxtLink>
+    <NuxtLink to="/machines" class="back-link"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m10 3-5 5 5 5" /></svg> Virtual machines</NuxtLink>
 
     <div v-if="!plane" class="skeleton" aria-label="Loading"><div /><div /></div>
     <section v-else-if="!instance" class="notice-panel vg-glass is-error" role="alert">

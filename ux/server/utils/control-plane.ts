@@ -166,10 +166,13 @@ export function frontDoorFrom(built: BuiltInstance[]): FrontDoor | null {
     key: entry.key,
     label: entry.label,
     url: `https://${host}${entry.port === 443 ? '' : `:${entry.port}`}`,
-    servers: servers.filter(item => entry.match(item.backend)).map(item => ({
-      name: item.server,
-      status: (['UP', 'DOWN', 'MAINT'].includes(item.status) ? item.status : 'UNKNOWN') as FrontDoorEntry['servers'][number]['status'],
-    })),
+    servers: servers.filter(item => entry.match(item.backend)).map((item) => {
+      let status = (['UP', 'DOWN', 'MAINT'].includes(item.status) ? item.status : 'UNKNOWN') as FrontDoorEntry['servers'][number]['status']
+      // The write path checks bare sys/health, which only the leader passes:
+      // a node that is unsealed (UP on the reads path) is a standby, not down.
+      if (entry.key === 'vault' && status === 'DOWN' && servers.some(s => s.backend === 'vault_any' && s.server === item.server && s.status === 'UP')) status = 'STANDBY'
+      return { name: item.server, status }
+    }),
   })).filter(entry => entry.servers.length > 0 || !proxy.checks)
   return { node: proxy.summary.name, entries }
 }

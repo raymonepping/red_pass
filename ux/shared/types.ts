@@ -77,7 +77,8 @@ export interface FrontDoorEntry {
   key: string
   label: string
   url: string
-  servers: { name: string, status: 'UP' | 'DOWN' | 'MAINT' | 'UNKNOWN' }[]
+  /** STANDBY: a Vault node that is healthy but not active (writes go to the leader only). */
+  servers: { name: string, status: 'UP' | 'STANDBY' | 'DOWN' | 'MAINT' | 'UNKNOWN' }[]
 }
 
 export interface FrontDoor {

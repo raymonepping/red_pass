@@ -5,7 +5,7 @@ import { test, expect, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import { signInIfRequired } from './helpers'
 
-const ROUTES = ['/', '/instances/red-vault-1', '/instances/red-vault-s']
+const ROUTES = ['/', '/machines', '/front-door', '/instances/red-vault-1', '/instances/red-vault-s']
 const VIEWPORTS = [
   { name: 'desktop', width: 1440, height: 900 },
   { name: 'phone', width: 390, height: 844 },
@@ -17,7 +17,7 @@ async function open(page: Page, route: string) {
   const deep = page.waitForResponse(response => response.url().endsWith('/api/instances') && response.ok(), { timeout: 60_000 })
   await page.goto(route)
   await deep
-  await page.waitForSelector('.posture-pill')
+  await page.waitForSelector('.vg-hero')
   await page.waitForTimeout(400)
 }
 
@@ -43,7 +43,7 @@ for (const viewport of VIEWPORTS) {
 test('@a11y evidence drawer and action dialog', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await signInIfRequired(page)
-  await open(page, '/')
+  await open(page, '/machines')
   await page.locator('.instance-card').first().locator('.posture-pill').last().click()
   await expect(page.getByRole('dialog')).toBeVisible()
   await page.waitForTimeout(400) // let the slide-in finish
