@@ -103,6 +103,14 @@ every task that touches one is `no_log: true` and `diff: false`.
 any paths you pass) without printing them. `.build/` holds only non-secret
 evidence: `ownership.json`, `convergence.json`, `validation.json`.
 
+## Control plane UI
+
+`make ui-install && make ui-start` serves a local glass console on
+`http://127.0.0.1:3310`: the fleet, the live seal chain, and four
+evidence-backed indicators per VM (Provisioned · RHEL healthy · Ansible
+converged · Vault secured). See [ux/README.md](ux/README.md) and
+[DESIGN.md](DESIGN.md).
+
 ## Recovery and operations
 
 See [docs/operations.md](docs/operations.md): resume points, restarts and the

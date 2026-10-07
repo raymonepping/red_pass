@@ -1,0 +1,32 @@
+# red_pass control plane UI
+
+Local Nuxt 4 control plane for the Ansible-built red_pass lab, in the Vault
+daylight glass design system (see [../DESIGN.md](../DESIGN.md)).
+
+```bash
+make ui-install
+make ui-start        # http://127.0.0.1:3310 (loopback only)
+make ui-check        # typecheck, lint, unit tests, build
+make ui-a11y         # axe WCAG 2.1 AA at 1440×900 and 390×844 (UI running)
+```
+
+## What each indicator proves
+
+| Indicator | Proven by | Never inferred from |
+| --- | --- | --- |
+| **Provisioned** | VM listed in `.build/ownership.json` (Ansible `provision.yml`) and its IP matches Multipass | a familiar VM name |
+| **RHEL healthy** | read-only guest probe: RHEL 9, aarch64, SELinux enforcing, swap off, firewalld active, no failed units, root filesystem | Multipass `Running` |
+| **Ansible converged** | last successful `make lab` stamp includes the node and its digest equals `scripts/automation-digest.sh` now | "Ansible ran once" |
+| **Vault secured** | live node probe (service, verified TLS, initialized, unsealed, expected seal type) + the last `make validate` report (cluster or seal-chain scope, with its age) | the Vault process running |
+
+The seal Vault is judged against seal-node expectations (Shamir, unsealed,
+Transit key, seal-token TTL); cluster evidence is never attributed to it.
+
+## Boundaries
+
+- Server-side only; `execFile` with fixed argv, timeouts and bounded output.
+- Reads only allow-listed fields from `.build/*.json`; never `.secrets/`.
+- Mutations: Multipass start/stop/restart/suspend/delete/recover/purge, with
+  Origin checks, per-instance locks, confirmation, an ownership-drift
+  acknowledgement for Ansible-provisioned VMs, and an exact phrase for purge.
+- It never runs `make`, Ansible, Vault writes or RHSM.

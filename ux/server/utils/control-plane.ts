@@ -1,0 +1,157 @@
+import { resolve } from 'node:path'
+import type { EvidenceCheck, InstanceSummary, InstancesResponse, LabRole, PostureCategory, SealChain } from '../../shared/types'
+import { aggregateStatus, category } from '../../shared/posture'
+import type { MultipassInstance } from './multipass'
+import { instanceInfo, listInstances } from './multipass'
+import { convergenceState, loadRepositoryEvidence, provisionOwnership, type RepositoryEvidence } from './repository'
+import { nodeChecks, reportEvidence, type NodeChecks } from './checks'
+import { publicError } from './command'
+
+function evidence(id: string, label: string, status: EvidenceCheck['status'], source: EvidenceCheck['source'], detail: string, observedAt: string): EvidenceCheck {
+  return { id, label, status, source, detail, scope: 'node', observedAt }
+}
+
+function provisionedPosture(instance: MultipassInstance, repo: RepositoryEvidence, now: string): PostureCategory {
+  const ownership = provisionOwnership(instance.name, repo.manifest)
+  if (ownership === 'unknown') {
+    return category('provisioned', 'Unknown', [evidence('manifest', 'Ownership manifest', 'unknown', 'ansible', '.build/ownership.json is missing or unreadable — run make provision.', now)])
+  }
+  if (ownership === 'unmanaged') {
+    return category('provisioned', 'Unmanaged', [evidence('manifest', 'Ownership manifest', 'warn', 'ansible', 'Not in the red_pass ownership manifest; Ansible does not manage this VM.', now)])
+  }
+  const node = repo.manifest.nodes[instance.name]!
+  const live = instance.ipv4[0]
+  const ipMatches = !node.ipv4 || !live || node.ipv4 === live
+  return category('provisioned', ipMatches ? 'Provisioned' : 'Drift detected', [
+    evidence('manifest', 'Ownership manifest', 'pass', 'ansible', `ansible/provision.yml · role ${node.role}${node.firstSeen ? ` · first seen ${node.firstSeen}` : ''}`, now),
+    evidence('address', 'Address agreement', ipMatches ? 'pass' : 'fail', 'ansible', node.ipv4 ? `Manifest ${node.ipv4}; Multipass ${live || 'none'}` : 'No recorded address', now),
+  ])
+}
+
+function ansiblePosture(instance: MultipassInstance, repo: RepositoryEvidence, provisioned: boolean, now: string): PostureCategory {
+  if (!provisioned) return category('ansible', 'Never run', [evidence('ansible-scope', 'Convergence scope', 'unknown', 'ansible', 'Not a red_pass node.', now)])
+  const state = convergenceState(instance.name, repo.stamp, repo.currentDigest)
+  const at = repo.stamp.finishedAt || now
+  const short = (digest: string | null) => digest ? `${digest.slice(0, 12)}…` : 'unavailable'
+  switch (state) {
+    case 'never-run':
+      return category('ansible', 'Never run', [evidence('ansible-stamp', 'Last successful make lab', 'warn', 'ansible', 'No convergence stamp includes this node yet — run make lab.', now)])
+    case 'failed':
+      return category('ansible', 'Failed', [evidence('ansible-stamp', 'Last make lab', 'fail', 'ansible', 'The recorded run did not succeed.', at)])
+    case 'unknown':
+      return category('ansible', 'Unknown', [evidence('ansible-digest', 'Automation digest', 'unknown', 'ansible', 'The stamp or the current digest is unavailable.', at)])
+    default:
+      return category('ansible', state === 'converged' ? 'Converged' : 'Outdated', [
+        evidence('ansible-stamp', 'Last successful make lab', 'pass', 'ansible', `Finished ${repo.stamp.finishedAt ?? 'at an unknown time'}; node included.`, at),
+        evidence('ansible-digest', 'Automation digest', state === 'converged' ? 'pass' : 'warn', 'ansible', state === 'converged'
+          ? `Matches ${short(repo.currentDigest)}`
+          : `Automation changed since the last run (applied ${short(repo.stamp.digest)}, now ${short(repo.currentDigest)}). Run make lab.`, now),
+      ])
+  }
+}
+
+function unavailableCategory(kind: 'rhel' | 'vault', reason: string, now: string): PostureCategory {
+  return category(kind, 'Unknown', [evidence(`${kind}-unavailable`, kind === 'rhel' ? 'Guest checks' : 'Vault health', 'unknown', kind, reason, now)])
+}
+
+interface BuiltInstance { summary: InstanceSummary, checks: NodeChecks | null }
+
+async function buildInstance(instance: MultipassInstance, repo: RepositoryEvidence, report: ReturnType<typeof reportEvidence>, now: string, deep: boolean): Promise<BuiltInstance> {
+  const provisioned = provisionedPosture(instance, repo, now)
+  const labRole: LabRole | null = repo.manifest.nodes[instance.name]?.role ?? null
+  const running = instance.state.toLowerCase() === 'running'
+  const mayCheck = deep && labRole !== null && running
+  const checks = mayCheck ? await nodeChecks(instance.name, instance.ipv4[0], labRole) : null
+  const reason = !deep ? 'Posture checks are loading.' : labRole ? 'The instance is not running.' : 'Checks run only for red_pass nodes.'
+
+  const rhel = checks
+    ? category('rhel', aggregateStatus(checks.rhel, { pass: 'Healthy', warn: 'Attention required', fail: 'Unreachable', unknown: 'Unknown' }), checks.rhel)
+    : unavailableCategory('rhel', reason, now)
+  const ansible = ansiblePosture(instance, repo, labRole !== null, now)
+  // Cluster-scope evidence is attributed only to cluster nodes; the seal Vault
+  // is judged on its own node checks plus the seal-chain evidence.
+  const scoped = labRole === 'seal' ? report.sealChain : [...report.cluster, ...report.sealChain]
+  const vaultEvidence = checks ? [...checks.vault, ...scoped] : []
+  const vault = checks
+    ? category('vault', aggregateStatus(vaultEvidence, { pass: 'Secured', warn: 'Attention required', fail: 'Not ready', unknown: 'Unknown' }), vaultEvidence)
+    : unavailableCategory('vault', reason, now)
+
+  // Multipass reports only the EFI partition for these RHEL guests; prefer the
+  // guest's own root filesystem size when the probe has it.
+  const resources = checks?.rootBytes ? { ...instance.resources, diskBytes: checks.rootBytes } : instance.resources
+  return { summary: { ...instance, resources, labRole, posture: { provisioned, rhel, ansible, vault } }, checks }
+}
+
+/** Live seal chain: the seal Vault and, per cluster node, whether it is transit-sealed and unsealed. */
+export function sealChainFrom(built: BuiltInstance[]): SealChain | null {
+  const seal = built.find(item => item.summary.labRole === 'seal')
+  if (!seal) return null
+  const sealFacts = seal.checks?.facts
+  const sealVault = !sealFacts?.reachable
+    ? { status: 'unknown' as const, sealed: null, detail: seal.summary.state.toLowerCase() === 'running' ? 'No verified answer' : seal.summary.state }
+    : sealFacts.sealed
+      ? { status: 'fail' as const, sealed: true, detail: 'Sealed — run make unseal' }
+      : { status: 'pass' as const, sealed: false, detail: 'Unsealed · Transit key serving' }
+  const links = built
+    .filter(item => item.summary.labRole === 'leader' || item.summary.labRole === 'follower')
+    .sort((a, b) => a.summary.name.localeCompare(b.summary.name))
+    .map(({ summary, checks }) => {
+      const facts = checks?.facts
+      if (!facts?.reachable) {
+        return { node: summary.name, sealType: null, sealed: null, status: 'unknown' as const, detail: sealVault.sealed ? 'Waiting for the seal Vault' : summary.state.toLowerCase() === 'running' ? 'No verified answer' : summary.state }
+      }
+      const ok = facts.sealType === 'transit' && facts.sealed === false
+      return { node: summary.name, sealType: facts.sealType, sealed: facts.sealed, status: ok ? 'pass' as const : 'fail' as const, detail: ok ? 'Auto-unsealed via transit' : facts.sealed ? 'Sealed' : `Seal type ${facts.sealType ?? 'unknown'}` }
+    })
+  return { sealNode: seal.summary.name, sealVault, links }
+}
+
+export function repositoryRoot(): string {
+  const configured = useRuntimeConfig().repositoryRoot
+  return resolve(process.cwd(), typeof configured === 'string' ? configured : '..')
+}
+
+export async function getControlPlane(options: { deep?: boolean } = {}): Promise<InstancesResponse> {
+  const now = new Date().toISOString()
+  const deep = options.deep !== false
+  try {
+    const listed = await listInstances()
+    const instances = await Promise.all(listed.map(async (instance) => {
+      try {
+        return await instanceInfo(instance.name) || instance
+      } catch {
+        return instance
+      }
+    }))
+    const repo = await loadRepositoryEvidence(repositoryRoot())
+    const report = reportEvidence(repo.report)
+    const built = await Promise.all(instances.map(instance => buildInstance(instance, repo, report, now, deep)))
+    const enriched = built.map(item => item.summary)
+    return {
+      available: true,
+      message: null,
+      observedAt: now,
+      summary: {
+        total: enriched.length,
+        running: enriched.filter(item => item.state.toLowerCase() === 'running').length,
+        stopped: enriched.filter(item => item.state.toLowerCase() === 'stopped').length,
+        deleted: enriched.filter(item => item.deleted).length,
+        cpus: enriched.reduce((sum, item) => sum + (item.resources.cpus || 0), 0),
+        memoryBytes: enriched.reduce((sum, item) => sum + (item.resources.memoryBytes || 0), 0),
+      },
+      instances: enriched,
+      cluster: deep ? report.cluster : [],
+      sealChain: deep ? sealChainFrom(built) : null,
+    }
+  } catch (error) {
+    return {
+      available: false,
+      message: publicError(error, 'Multipass data could not be read.'),
+      observedAt: now,
+      summary: { total: 0, running: 0, stopped: 0, deleted: 0, cpus: 0, memoryBytes: 0 },
+      instances: [],
+      cluster: [],
+      sealChain: null,
+    }
+  }
+}

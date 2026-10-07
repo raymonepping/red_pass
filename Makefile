@@ -60,3 +60,24 @@ rhel-unregister: ## Unregister guests from RHSM (CONFIRM_RHSM_UNREGISTER=yes)
 
 multi-pass-start: ## Start multi_pass's vault-1..3 again (start only)
 	multipass start vault-1 vault-2 vault-3
+
+.PHONY: ui-install ui ui-build ui-start ui-check ui-a11y
+UI_PORT ?= 3310
+
+ui-install: ## Install the control-plane UI dependencies
+	cd ux && npm ci
+
+ui: ## Run the control-plane UI in dev mode on 127.0.0.1:$(UI_PORT)
+	cd ux && PORT=$(UI_PORT) npm run dev
+
+ui-build: ## Production build of the UI
+	cd ux && npm run build
+
+ui-start: ui-build ## Serve the built UI on 127.0.0.1:$(UI_PORT)
+	cd ux && PORT=$(UI_PORT) npm start
+
+ui-check: ## UI typecheck, lint, unit tests and build
+	cd ux && npm run typecheck && npm run lint && npm test && npm run build
+
+ui-a11y: ## axe WCAG 2.1 AA scan of every screen (UI must be running)
+	cd ux && RED_PASS_UI_URL=http://127.0.0.1:$(UI_PORT) npm run test:a11y
