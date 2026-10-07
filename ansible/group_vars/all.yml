@@ -1,0 +1,75 @@
+---
+# ── Project identity ──────────────────────────────────────────────────────────
+project_name: red_pass
+repo_root: "{{ (playbook_dir ~ '/..') | realpath }}"
+
+# ── Multipass topology (hard allow-list) ─────────────────────────────────────
+# Automation only ever mutates instances named here. multi_pass's VMs are
+# handled separately and only ever stopped (see multi_pass_vms below).
+lab_cluster_nodes: [red-vault-1, red-vault-2, red-vault-3]
+lab_seal_node: red-vault-s
+lab_nodes: "{{ lab_cluster_nodes + [lab_seal_node] }}"
+vault_leader: red-vault-1
+
+lab_image: "{{ lookup('env', 'RED_PASS_IMAGE') | default('/Users/Shared/rhel-9.8-aarch64-kvm.qcow2', true) }}"
+lab_sizing:
+  cluster: { cpus: 2, memory: 4G, disk: 20G }
+  seal: { cpus: 1, memory: 2G, disk: 10G }
+lab_launch_timeout: 900
+
+# Approved by the operator: stop (never delete) multi_pass's VMs before
+# launching red_pass, to free host resources.
+stop_multi_pass: true
+multi_pass_vms: [vault-1, vault-2, vault-3]
+
+lab_ssh_user: ubuntu
+lab_guest_python: /usr/bin/python3.9
+
+# ── Controller paths (all ignored by Git) ────────────────────────────────────
+secrets_dir: "{{ repo_root }}/.secrets"
+build_dir: "{{ repo_root }}/.build"
+cache_dir: "{{ repo_root }}/.cache"
+tls_dir: "{{ secrets_dir }}/tls"
+ssh_dir: "{{ secrets_dir }}/ansible"
+ssh_private_key: "{{ ssh_dir }}/id_ed25519"
+ssh_known_hosts: "{{ ssh_dir }}/known_hosts"
+cloud_init_file: "{{ build_dir }}/cloud-init/rhel.yaml"
+ownership_manifest: "{{ build_dir }}/ownership.json"
+
+# ── Vault Enterprise ──────────────────────────────────────────────────────────
+vault_version: "2.1.0+ent"
+vault_archive_sha256: "a0fbfb3fb07e5c4574f07062338f8fb10b4464c0622e3cc9b3b030d3c9afc2da"
+vault_arch: linux_arm64
+
+vault_bin: /usr/local/bin/vault
+vault_config_dir: /etc/vault.d
+vault_config_file: /etc/vault.d/vault.hcl
+vault_seal_env_file: /etc/vault.d/seal.env
+vault_data_dir: /opt/vault/data
+vault_tls_dir: /opt/vault/tls
+vault_license_dest: /opt/vault/vault.hclic
+vault_api_port: 8200
+vault_cluster_port: 8201
+
+# ── Seal chain ────────────────────────────────────────────────────────────────
+# red-vault-s: Shamir 1/1, Transit key "autounseal". The cluster uses
+# seal "transit" and is initialised with recovery keys (3 shares / 2).
+seal_key_shares: 1
+seal_key_threshold: 1
+seal_transit_mount: transit
+seal_transit_key: autounseal
+seal_policy_name: autounseal
+seal_token_period: 720h
+seal_wait_timeout_seconds: 300
+recovery_shares: 3
+recovery_threshold: 2
+
+# ── Controller secrets (mode 0600, never printed) ────────────────────────────
+seal_init_path: "{{ secrets_dir }}/seal-init.json"
+seal_token_path: "{{ secrets_dir }}/seal-token"
+vault_init_path: "{{ secrets_dir }}/vault-init.json"
+platform_token_path: "{{ secrets_dir }}/platform-token"
+platform_policy_name: red-pass-platform-admin
+platform_token_period: 24h
+
+vault_ca_cert: "{{ tls_dir }}/ca.crt"

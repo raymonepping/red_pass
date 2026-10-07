@@ -1,0 +1,8 @@
+---
+# Imported first by every playbook that targets the guests.
+- name: Discover the red_pass instances from Multipass
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  roles:
+    - lab_inventory

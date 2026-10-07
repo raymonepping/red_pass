@@ -1,0 +1,10 @@
+---
+- name: Build the in-memory inventory
+  ansible.builtin.import_playbook: discover.yml
+
+- name: Prove verified SSH reachability
+  hosts: red_pass
+  gather_facts: false
+  tasks:
+    - name: Ping over the dedicated key with strict host-key checking
+      ansible.builtin.ping:

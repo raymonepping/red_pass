@@ -1,0 +1,8 @@
+---
+# Static inventory holds only the controller. The Vault nodes are discovered
+# at run time from Multipass by the lab_inventory role (see discover.yml).
+all:
+  hosts:
+    localhost:
+      ansible_connection: local
+      ansible_python_interpreter: "{{ ansible_playbook_python }}"

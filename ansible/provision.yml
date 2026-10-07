@@ -1,0 +1,58 @@
+---
+# provision.yml — Ansible-owned VM lifecycle (replaces terraform/infra).
+#
+#   make provision
+#
+# Stops multi_pass's VMs (operator-approved), launches/starts the four
+# allow-listed red_pass VMs, establishes verified SSH trust, and writes the
+# non-secret ownership manifest.
+
+- name: Provision the red_pass Multipass VMs
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Require the Multipass CLI
+      ansible.builtin.command:
+        argv: [multipass, version]
+      changed_when: false
+
+    - name: Require the operator inputs in the environment (values suppressed)
+      ansible.builtin.assert:
+        that:
+          - lookup('env', 'VAULT_LICENSE') | length > 100
+          - lookup('env', 'RHSM_ORG') | length > 0
+          - lookup('env', 'RHSM_ACTIVATION_KEY') | length > 0
+        fail_msg: >-
+          VAULT_LICENSE, RHSM_ORG and RHSM_ACTIVATION_KEY must be set in .env
+          (or the environment). Run playbooks through make / scripts/ansible-run.sh.
+        quiet: true
+      no_log: true
+
+    - name: Prepare the dedicated SSH identity and cloud-init
+      ansible.builtin.include_role:
+        name: lab_ssh
+
+    - name: Launch or start the lab VMs
+      ansible.builtin.include_role:
+        name: multipass_vm
+
+    - name: Trust the lab VM host keys
+      ansible.builtin.include_role:
+        name: lab_ssh
+        tasks_from: trust.yml
+
+    - name: Write the ownership manifest
+      ansible.builtin.include_role:
+        name: multipass_vm
+        tasks_from: manifest.yml
+
+- name: Build the in-memory inventory
+  ansible.builtin.import_playbook: discover.yml
+
+- name: Prove verified SSH reachability
+  hosts: red_pass
+  gather_facts: false
+  tasks:
+    - name: Ping over the dedicated key with strict host-key checking
+      ansible.builtin.ping:

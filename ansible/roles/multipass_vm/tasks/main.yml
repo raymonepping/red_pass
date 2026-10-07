@@ -1,0 +1,134 @@
+---
+# VM lifecycle for the four allow-listed red_pass instances, driven through
+# the Multipass CLI on the controller. Never deletes or relaunches an
+# existing instance; never touches a name outside lab_nodes (multi_pass's
+# VMs are only stopped, and only when stop_multi_pass is true).
+
+- name: Require the source RHEL image
+  ansible.builtin.stat:
+    path: "{{ lab_image }}"
+  register: lab_image_stat
+  failed_when: not lab_image_stat.stat.exists
+
+- name: Read the Multipass inventory
+  ansible.builtin.command:
+    argv: [multipass, list, --format, json]
+  register: mp_list
+  changed_when: false
+
+- name: Index existing instances
+  ansible.builtin.set_fact:
+    mp_instances: "{{ (mp_list.stdout | from_json).list }}"
+    mp_state: "{{ dict((mp_list.stdout | from_json).list | map(attribute='name') | zip((mp_list.stdout | from_json).list | map(attribute='state'))) }}"
+
+- name: Stop the multi_pass VMs (operator-approved, never deleted)
+  ansible.builtin.command:
+    argv: "{{ ['multipass', 'stop'] + mp_multi_pass_running }}"
+  vars:
+    mp_multi_pass_running: >-
+      {{ mp_instances | selectattr('name', 'in', multi_pass_vms)
+         | selectattr('state', 'equalto', 'Running') | map(attribute='name') | list }}
+  when:
+    - stop_multi_pass | bool
+    - mp_multi_pass_running | length > 0
+  changed_when: true
+
+- name: Refuse lab instances in an unusable state
+  ansible.builtin.assert:
+    that: mp_state[item] in ['Running', 'Stopped', 'Suspended', 'Starting', 'Restarting']
+    fail_msg: >-
+      {{ item }} is '{{ mp_state[item] }}'. Recover it with Multipass
+      (for example 'multipass recover {{ item }}'); automation never deletes it.
+    quiet: true
+  loop: "{{ lab_nodes | select('in', mp_state) | list }}"
+
+- name: Launch missing lab instances in parallel
+  ansible.builtin.command:
+    argv:
+      - multipass
+      - launch
+      - "file://{{ lab_image }}"
+      - --name
+      - "{{ item }}"
+      - --cpus
+      - "{{ lab_size.cpus | string }}"
+      - --memory
+      - "{{ lab_size.memory }}"
+      - --disk
+      - "{{ lab_size.disk }}"
+      - --cloud-init
+      - "{{ cloud_init_file }}"
+      - --timeout
+      - "{{ lab_launch_timeout | string }}"
+  vars:
+    lab_size: "{{ lab_sizing.seal if item == lab_seal_node else lab_sizing.cluster }}"
+  loop: "{{ lab_nodes | reject('in', mp_state) | list }}"
+  async: "{{ lab_launch_timeout + 120 }}"
+  poll: 0
+  register: mp_launch_jobs
+  changed_when: true
+
+- name: Wait for the launches to finish
+  ansible.builtin.async_status:
+    jid: "{{ item.ansible_job_id }}"
+  loop: "{{ mp_launch_jobs.results | selectattr('ansible_job_id', 'defined') | list }}"
+  loop_control:
+    label: "{{ item.item }}"
+  register: mp_launch_result
+  until: mp_launch_result.finished
+  retries: "{{ ((lab_launch_timeout + 120) / 10) | int }}"
+  delay: 10
+  changed_when: false
+
+- name: Start stopped or suspended lab instances
+  ansible.builtin.command:
+    argv: [multipass, start, "{{ item }}"]
+  loop: "{{ lab_nodes | select('in', mp_state) | list }}"
+  when: mp_state[item] in ['Stopped', 'Suspended']
+  changed_when: true
+
+- name: Wait for every lab instance to run with an IPv4 address
+  ansible.builtin.command:
+    argv: [multipass, info, "{{ item }}", --format, json]
+  loop: "{{ lab_nodes }}"
+  register: mp_info
+  changed_when: false
+  until: >-
+    mp_info.rc == 0 and
+    (mp_info.stdout | from_json).info[item].state == 'Running' and
+    ((mp_info.stdout | from_json).info[item].ipv4 | default([]) | length > 0)
+  retries: 60
+  delay: 5
+
+- name: Record lab instance addresses and sizing
+  ansible.builtin.set_fact:
+    lab_instances: "{{ lab_instances | default({}) | combine({item.item: mp_node.ipv4[0]}) }}"
+    lab_instance_info: >-
+      {{ lab_instance_info | default({}) | combine({item.item: {
+           'ipv4': mp_node.ipv4[0],
+           'cpus': mp_node.cpu_count | int,
+           'release': mp_node.release | default('')}}) }}
+  vars:
+    mp_node: "{{ (item.stdout | from_json).info[item.item] }}"
+  loop: "{{ mp_info.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Wait for cloud-init to finish without errors
+  ansible.builtin.command:
+    argv: [multipass, exec, "{{ item }}", --, sudo, cloud-init, status, --wait, --long]
+  loop: "{{ lab_nodes }}"
+  register: mp_cloud_init
+  changed_when: false
+  failed_when: >-
+    'status: done' not in mp_cloud_init.stdout or
+    'errors: []' not in mp_cloud_init.stdout
+
+- name: Warn when an existing instance differs from the requested sizing
+  ansible.builtin.debug:
+    msg: >-
+      {{ item }} has {{ lab_instance_info[item].cpus }} CPUs but
+      {{ (lab_sizing.seal if item == lab_seal_node else lab_sizing.cluster).cpus }}
+      are configured. Existing VMs are never resized automatically.
+  loop: "{{ lab_nodes }}"
+  when: lab_instance_info[item].cpus != (lab_sizing.seal if item == lab_seal_node else lab_sizing.cluster).cpus

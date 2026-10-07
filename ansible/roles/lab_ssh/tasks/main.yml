@@ -1,0 +1,35 @@
+---
+# Dedicated controller SSH identity and the cloud-init that carries its
+# public half. The private key never leaves .secrets/ansible/.
+
+- name: Create the private controller directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0700"
+  loop:
+    - "{{ secrets_dir }}"
+    - "{{ ssh_dir }}"
+    - "{{ build_dir }}"
+    - "{{ cloud_init_file | dirname }}"
+
+- name: Generate or reuse the dedicated red_pass SSH key pair
+  community.crypto.openssh_keypair:
+    path: "{{ ssh_private_key }}"
+    type: ed25519
+    comment: red-pass-lab
+    mode: "0600"
+    regenerate: never
+
+- name: Read the dedicated public key
+  ansible.builtin.slurp:
+    src: "{{ ssh_private_key }}.pub"
+  register: lab_ssh_public_key_raw
+
+- name: Render the RHEL cloud-init user data
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/templates/cloud-init.yaml.j2"
+    dest: "{{ cloud_init_file }}"
+    mode: "0600"
+  vars:
+    lab_ssh_public_key: "{{ lab_ssh_public_key_raw.content | b64decode | trim }}"

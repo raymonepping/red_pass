@@ -1,0 +1,57 @@
+---
+# Trust-on-first-use host keys for the four lab VMs, recorded in the project
+# known_hosts file. A changed key fails closed unless explicitly confirmed.
+# Expects lab_instances (name -> ipv4) from the multipass_vm role.
+
+- name: Ensure the project known_hosts file exists
+  ansible.builtin.file:
+    path: "{{ ssh_known_hosts }}"
+    state: touch
+    mode: "0600"
+    access_time: preserve
+    modification_time: preserve
+
+- name: Scan the ED25519 host key of each lab VM
+  ansible.builtin.command:
+    argv: [ssh-keyscan, -T, "10", -t, ed25519, "{{ lab_instances[item] }}"]
+  loop: "{{ lab_nodes }}"
+  register: lab_host_scan
+  changed_when: false
+  failed_when: lab_host_scan.rc != 0 or (lab_host_scan.stdout_lines | reject('match', '^#') | list | length == 0)
+  retries: 10
+  delay: 3
+  until: lab_host_scan.rc == 0 and (lab_host_scan.stdout_lines | reject('match', '^#') | list | length > 0)
+
+- name: Look up already-trusted host keys
+  ansible.builtin.command:
+    argv: [ssh-keygen, -F, "{{ lab_instances[item] }}", -f, "{{ ssh_known_hosts }}"]
+  loop: "{{ lab_nodes }}"
+  register: lab_host_known
+  changed_when: false
+  failed_when: lab_host_known.rc not in [0, 1]
+
+- name: Fail closed on a changed host key
+  ansible.builtin.assert:
+    that:
+      - >-
+        item.1.rc != 0 or confirm_host_key_change | default(false) | bool or
+        (item.0.stdout.split() | select('match', '^AAAA') | first)
+        in item.1.stdout
+    fail_msg: >-
+      The SSH host key of {{ item.0.item }} ({{ lab_instances[item.0.item] }})
+      changed. Verify the VM was intentionally recreated, then rerun with
+      -e confirm_host_key_change=true.
+    quiet: true
+  loop: "{{ lab_host_scan.results | zip(lab_host_known.results) | list }}"
+  loop_control:
+    label: "{{ item.0.item }}"
+
+- name: Record the trusted host keys
+  ansible.builtin.known_hosts:
+    path: "{{ ssh_known_hosts }}"
+    name: "{{ lab_instances[item.item] }}"
+    key: "{{ item.stdout_lines | reject('match', '^#') | first }}"
+    state: present
+  loop: "{{ lab_host_scan.results }}"
+  loop_control:
+    label: "{{ item.item }}"

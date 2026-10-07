@@ -1,0 +1,41 @@
+---
+# Non-secret ownership manifest: the evidence that Ansible launched and owns
+# these instances. The UI reads it for the "Ansible provisioned" indicator.
+
+- name: Read the previous ownership manifest
+  ansible.builtin.slurp:
+    src: "{{ ownership_manifest }}"
+  register: lab_manifest_raw
+  failed_when: false
+
+- name: Keep first_seen timestamps from the previous manifest
+  ansible.builtin.set_fact:
+    lab_previous_nodes: >-
+      {{ ((lab_manifest_raw.content | b64decode | from_json).nodes
+          if lab_manifest_raw.content is defined else {})
+         if ((lab_manifest_raw.content | default('e30=') | b64decode | from_json).nodes | default({})) is mapping
+         else {} }}
+
+- name: Describe each owned node
+  ansible.builtin.set_fact:
+    lab_manifest_nodes: >-
+      {{ lab_manifest_nodes | default({}) | combine({item: {
+           'launched_by_ansible': true,
+           'role': 'seal' if item == lab_seal_node else ('leader' if item == vault_leader else 'follower'),
+           'ipv4': lab_instances[item],
+           'cpus': lab_size.cpus,
+           'memory': lab_size.memory,
+           'disk': lab_size.disk,
+           'image': lab_image,
+           'first_seen': lab_previous_nodes[item].first_seen
+             if lab_previous_nodes[item] is defined
+             else now(utc=true).strftime('%Y-%m-%dT%H:%M:%SZ')}}) }}
+  vars:
+    lab_size: "{{ lab_sizing.seal if item == lab_seal_node else lab_sizing.cluster }}"
+  loop: "{{ lab_nodes }}"
+
+- name: Write the ownership manifest
+  ansible.builtin.copy:
+    dest: "{{ ownership_manifest }}"
+    mode: "0644"
+    content: "{{ {'project': project_name, 'playbook': 'ansible/provision.yml', 'nodes': lab_manifest_nodes} | to_nice_json(sort_keys=true) }}\n"

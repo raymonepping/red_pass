@@ -213,3 +213,11 @@ kubeconfig
 .kubeconfig
 kube/config
 
+
+########################################
+# 🔴 red_pass generated artifacts
+########################################
+.build/
+.cache/
+ux/.nuxt/
+ux/.output/
