@@ -1,0 +1,17 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# ExecStartPre guard: succeed only when the seal Vault ({{ lab_seal_node }}) is
+# initialised, unsealed and active, so this transit-sealed node can
+# auto-unseal. Fails fast; systemd (Restart=always) retries, so a sealed seal
+# Vault never blocks boot and never crash-loops Vault itself.
+set -u
+for attempt in 1 2 3; do
+  if curl -fsS -o /dev/null --max-time 3 \
+    --cacert {{ vault_tls_dir }}/ca.crt \
+    "https://{{ lab_seal_node }}:{{ vault_api_port }}/v1/sys/health"; then
+    exit 0
+  fi
+  sleep 2
+done
+echo "seal Vault {{ lab_seal_node }} not ready; retrying (operator: 'make unseal' if it is sealed)" >&2
+exit 1

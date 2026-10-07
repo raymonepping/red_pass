@@ -8,6 +8,16 @@
     argv: [multipass, list, --format, json]
   register: inv_list
   changed_when: false
+  check_mode: false
+  # Tolerate a node that is mid-restart: wait briefly for all four.
+  until: >-
+    allow_partial | default(false) | bool or
+    ((inv_list.stdout | from_json).list | selectattr('name', 'in', lab_nodes)
+     | selectattr('state', 'equalto', 'Running') | selectattr('ipv4', 'truthy') | list | length)
+    == lab_nodes | length
+  retries: 24
+  delay: 5
+  failed_when: false
 
 - name: Select running allow-listed instances with an IPv4 address
   ansible.builtin.set_fact:

@@ -4,5 +4,6 @@
   hosts: localhost
   connection: local
   gather_facts: false
+  tags: [always]
   roles:
     - lab_inventory

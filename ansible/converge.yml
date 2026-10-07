@@ -1,0 +1,34 @@
+---
+# converge.yml — guest OS and Vault convergence for all four nodes.
+#
+#   make converge            (TAGS=tls etc. to run one role)
+#
+# Cluster nodes are configured but only started once bootstrap.yml has
+# created the seal token; bootstrap always follows converge in make lab.
+
+- name: Build the in-memory inventory
+  ansible.builtin.import_playbook: discover.yml
+
+- name: RHEL preparation and Vault installation on every node
+  hosts: red_pass
+  become: true
+  gather_facts: true
+  roles:
+    - { role: rhel_prepare, tags: [rhel] }
+    - { role: vault_install, tags: [install] }
+    - { role: vault_tls, tags: [tls] }
+    - { role: vault_license, tags: [license] }
+
+- name: Configure the seal Vault
+  hosts: vault_seal
+  become: true
+  gather_facts: false
+  roles:
+    - { role: vault_configure, tags: [configure] }
+
+- name: Configure the transit-sealed cluster nodes
+  hosts: vault
+  become: true
+  gather_facts: false
+  roles:
+    - { role: vault_configure, tags: [configure] }

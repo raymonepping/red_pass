@@ -221,3 +221,13 @@ kube/config
 .cache/
 ux/.nuxt/
 ux/.output/
+
+# ── Added by commit_gh --harden ─────────────────────────────
+*.env
+.vault.*
+*.vault
+*.jsonl
+input/*
+!input/.gitkeep
+output/*
+!output/.gitkeep

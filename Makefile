@@ -18,3 +18,18 @@ provision: deps ## Launch/start the four red-vault VMs, SSH trust, ownership man
 
 ping: ## Verified SSH ping of all four VMs
 	$(RUN) ping
+
+.PHONY: converge bootstrap unseal
+converge: deps ## RHEL prep, Vault install/TLS/license/config on all four nodes (TAGS=...)
+	$(RUN) converge
+
+bootstrap: ## Seal chain: seal Vault, transit auto-unseal, cluster init, platform token
+	$(RUN) bootstrap
+
+unseal: ## Unseal red-vault-s (one key); the cluster auto-unseals
+	$(RUN) unseal
+
+
+.PHONY: status
+status: ## vault status for every red_pass node
+	./scripts/status.sh

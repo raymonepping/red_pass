@@ -60,7 +60,6 @@ seal_transit_mount: transit
 seal_transit_key: autounseal
 seal_policy_name: autounseal
 seal_token_period: 720h
-seal_wait_timeout_seconds: 300
 recovery_shares: 3
 recovery_threshold: 2
 
@@ -73,3 +72,4 @@ platform_policy_name: red-pass-platform-admin
 platform_token_period: 24h
 
 vault_ca_cert: "{{ tls_dir }}/ca.crt"
+

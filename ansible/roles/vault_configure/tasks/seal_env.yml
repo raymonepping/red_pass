@@ -1,0 +1,28 @@
+---
+# Places VAULT_TOKEN for the transit seal in a root-owned 0600 systemd
+# EnvironmentFile. Only runs once bootstrap.yml has created the token.
+
+- name: Check for the controller seal token
+  ansible.builtin.stat:
+    path: "{{ seal_token_path }}"
+  register: vault_seal_token_file
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Write the seal token environment file (contents suppressed)
+  ansible.builtin.copy:
+    content: "VAULT_TOKEN={{ lookup('file', seal_token_path) | trim }}\n"
+    dest: "{{ vault_seal_env_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  diff: false
+  when: vault_seal_token_file.stat.exists
+  notify: Restart vault
+
+- name: Check for the node seal environment file
+  ansible.builtin.stat:
+    path: "{{ vault_seal_env_file }}"
+  register: vault_seal_env

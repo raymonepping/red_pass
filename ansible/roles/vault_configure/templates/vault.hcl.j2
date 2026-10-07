@@ -1,0 +1,45 @@
+# {{ ansible_managed }}
+ui            = true
+disable_mlock = true
+api_addr      = "https://{{ ansible_host }}:{{ vault_api_port }}"
+cluster_addr  = "https://{{ ansible_host }}:{{ vault_cluster_port }}"
+license_path  = "{{ vault_license_dest }}"
+log_level     = "info"
+
+{% if inventory_hostname in groups['vault'] %}
+# Auto-unseal through the seal Vault's Transit engine. The token is NOT in
+# this file: systemd passes VAULT_TOKEN from {{ vault_seal_env_file }}.
+seal "transit" {
+  address     = "https://{{ lab_seal_node }}:{{ vault_api_port }}"
+  mount_path  = "{{ seal_transit_mount }}/"
+  key_name    = "{{ seal_transit_key }}"
+  tls_ca_cert = "{{ vault_tls_dir }}/ca.crt"
+}
+
+{% endif %}
+storage "raft" {
+  path    = "{{ vault_data_dir }}"
+  node_id = "{{ inventory_hostname }}"
+{% if inventory_hostname in groups['vault'] %}
+{% for peer in groups['vault'] | sort if peer != inventory_hostname %}
+
+  retry_join {
+    leader_api_addr     = "https://{{ peer }}:{{ vault_api_port }}"
+    leader_ca_cert_file = "{{ vault_tls_dir }}/ca.crt"
+  }
+{% endfor %}
+{% endif %}
+}
+
+listener "tcp" {
+  address            = "0.0.0.0:{{ vault_api_port }}"
+  cluster_address    = "0.0.0.0:{{ vault_cluster_port }}"
+  tls_cert_file      = "{{ vault_tls_dir }}/server.crt"
+  tls_key_file       = "{{ vault_tls_dir }}/server.key"
+  tls_client_ca_file = "{{ vault_tls_dir }}/ca.crt"
+  tls_min_version    = "tls12"
+}
+
+telemetry {
+  disable_hostname = true
+}

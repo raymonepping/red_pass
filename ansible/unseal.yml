@@ -1,0 +1,35 @@
+---
+# unseal.yml — unseal the seal Vault with its single key; the cluster
+# nodes then auto-unseal themselves. Never initialises anything.
+#
+#   make unseal
+
+- name: Build the in-memory inventory
+  ansible.builtin.import_playbook: discover.yml
+
+- name: Unseal the seal chain
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Require existing seal initialisation material
+      ansible.builtin.stat:
+        path: "{{ seal_init_path }}"
+      register: unseal_init_file
+      failed_when: not unseal_init_file.stat.exists
+
+    - name: Unseal the seal Vault
+      ansible.builtin.include_role:
+        name: vault_bootstrap
+        tasks_from: seal.yml
+
+    - name: Wait for every cluster node to auto-unseal
+      ansible.builtin.uri:
+        url: "https://{{ hostvars[item].ansible_host }}:{{ vault_api_port }}/v1/sys/seal-status"
+        ca_path: "{{ vault_ca_cert }}"
+      check_mode: false
+      loop: "{{ groups['vault'] | sort }}"
+      register: unseal_cluster
+      until: unseal_cluster.status == 200 and unseal_cluster.json.initialized and not unseal_cluster.json.sealed
+      retries: 60
+      delay: 5

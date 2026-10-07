@@ -1,0 +1,201 @@
+---
+# Phase A — the seal Vault (red-vault-s): init once (Shamir 1/1), unseal,
+# Transit key + narrow policy, and a periodic orphan token for the cluster.
+# Runs on localhost. Every task touching keys or tokens is no_log.
+
+- name: Address the seal Vault
+  ansible.builtin.set_fact:
+    seal_addr: "https://{{ hostvars[lab_seal_node].ansible_host }}:{{ vault_api_port }}"
+
+- name: Wait for the seal Vault API
+  check_mode: false
+  ansible.builtin.uri:
+    url: "{{ seal_addr }}/v1/sys/seal-status"
+    ca_path: "{{ vault_ca_cert }}"
+  register: seal_status
+  until: seal_status.status == 200
+  retries: 30
+  delay: 2
+
+- name: Check for controller seal initialisation material
+  ansible.builtin.stat:
+    path: "{{ seal_init_path }}"
+  register: seal_init_file
+
+- name: Protect an initialised seal Vault from lost material
+  ansible.builtin.assert:
+    that: seal_status.json.initialized == seal_init_file.stat.exists
+    fail_msg: >-
+      The seal Vault initialised={{ seal_status.json.initialized }} but
+      {{ seal_init_path }} exists={{ seal_init_file.stat.exists }}. Restore the
+      correct file; it is never overwritten and Vault is never reinitialised.
+    quiet: true
+
+- name: Initialise the seal Vault exactly once
+  when: not seal_status.json.initialized
+  no_log: true
+  block:
+    - name: Initialise the seal Vault (Shamir {{ seal_key_shares }}/{{ seal_key_threshold }})
+      ansible.builtin.uri:
+        url: "{{ seal_addr }}/v1/sys/init"
+        ca_path: "{{ vault_ca_cert }}"
+        method: PUT
+        body_format: json
+        body:
+          secret_shares: "{{ seal_key_shares | int }}"
+          secret_threshold: "{{ seal_key_threshold | int }}"
+      register: seal_init_result
+      changed_when: true
+
+    - name: Persist the seal initialisation material
+      ansible.builtin.copy:
+        content: "{{ seal_init_result.json | to_nice_json }}\n"
+        dest: "{{ seal_init_path }}"
+        mode: "0600"
+      diff: false
+
+- name: Load the seal initialisation material
+  ansible.builtin.set_fact:
+    seal_init: "{{ lookup('file', seal_init_path) | from_json }}"
+  no_log: true
+
+- name: Unseal the seal Vault
+  ansible.builtin.uri:
+    url: "{{ seal_addr }}/v1/sys/unseal"
+    ca_path: "{{ vault_ca_cert }}"
+    method: PUT
+    body_format: json
+    body:
+      key: "{{ seal_init.keys_base64[item] }}"
+  loop: "{{ range(0, seal_key_threshold | int) | list }}"
+  no_log: true
+  changed_when: true
+  when: seal_status.json.sealed
+
+- name: Wait for the seal Vault to be active
+  check_mode: false
+  ansible.builtin.uri:
+    url: "{{ seal_addr }}/v1/sys/health"
+    ca_path: "{{ vault_ca_cert }}"
+  register: seal_health
+  until: seal_health.status == 200
+  retries: 30
+  delay: 2
+
+- name: Configure the Transit seal backend
+  module_defaults:
+    ansible.builtin.uri:
+      ca_path: "{{ vault_ca_cert }}"
+      headers:
+        X-Vault-Token: "{{ seal_init.root_token }}"
+  no_log: true
+  block:
+    - name: Read the seal Vault mounts
+      check_mode: false
+      ansible.builtin.uri:
+        url: "{{ seal_addr }}/v1/sys/mounts"
+      register: seal_mounts
+
+    - name: Enable the Transit engine
+      ansible.builtin.uri:
+        url: "{{ seal_addr }}/v1/sys/mounts/{{ seal_transit_mount }}"
+        method: POST
+        body_format: json
+        body: { type: transit, description: red_pass cluster auto-unseal }
+        status_code: [200, 204]
+      changed_when: true
+      when: (seal_transit_mount ~ '/') not in seal_mounts.json.data
+
+    - name: Read the auto-unseal key
+      check_mode: false
+      ansible.builtin.uri:
+        url: "{{ seal_addr }}/v1/{{ seal_transit_mount }}/keys/{{ seal_transit_key }}"
+        status_code: [200, 404]
+      register: seal_key
+
+    - name: Create the auto-unseal key
+      ansible.builtin.uri:
+        url: "{{ seal_addr }}/v1/{{ seal_transit_mount }}/keys/{{ seal_transit_key }}"
+        method: POST
+        body_format: json
+        body: { type: aes256-gcm96, exportable: false, allow_plaintext_backup: false }
+        status_code: [200, 204]
+      changed_when: true
+      when: seal_key.status == 404
+
+    - name: Read the auto-unseal policy
+      check_mode: false
+      ansible.builtin.uri:
+        url: "{{ seal_addr }}/v1/sys/policies/acl/{{ seal_policy_name }}"
+        status_code: [200, 404]
+      register: seal_policy
+
+    - name: Write the auto-unseal policy when it differs
+      ansible.builtin.uri:
+        url: "{{ seal_addr }}/v1/sys/policies/acl/{{ seal_policy_name }}"
+        method: PUT
+        body_format: json
+        body: { policy: "{{ lookup('file', 'autounseal.hcl') }}" }
+        status_code: [200, 204]
+      changed_when: true
+      when: >-
+        seal_policy.status == 404 or
+        (seal_policy.json.data.policy | trim) != (lookup('file', 'autounseal.hcl') | trim)
+
+- name: Check for an existing seal token
+  ansible.builtin.stat:
+    path: "{{ seal_token_path }}"
+  register: seal_token_file
+
+- name: Validate the existing seal token
+  check_mode: false
+  ansible.builtin.uri:
+    url: "{{ seal_addr }}/v1/auth/token/lookup-self"
+    ca_path: "{{ vault_ca_cert }}"
+    headers:
+      X-Vault-Token: "{{ lookup('file', seal_token_path) | trim }}"
+    status_code: [200, 403]
+  register: seal_token_check
+  no_log: true
+  when: seal_token_file.stat.exists
+
+- name: Create the periodic orphan seal token
+  when: not seal_token_file.stat.exists or seal_token_check.status == 403
+  no_log: true
+  block:
+    - name: Create the seal token ({{ seal_token_period }} period, policy {{ seal_policy_name }})
+      ansible.builtin.uri:
+        url: "{{ seal_addr }}/v1/auth/token/create-orphan"
+        ca_path: "{{ vault_ca_cert }}"
+        method: POST
+        headers:
+          X-Vault-Token: "{{ seal_init.root_token }}"
+        body_format: json
+        body:
+          policies: ["{{ seal_policy_name }}"]
+          period: "{{ seal_token_period }}"
+          display_name: red-pass-autounseal
+          no_default_policy: true
+      register: seal_new_token
+      changed_when: true
+
+    - name: Persist the seal token
+      ansible.builtin.copy:
+        content: "{{ seal_new_token.json.auth.client_token }}\n"
+        dest: "{{ seal_token_path }}"
+        mode: "0600"
+      diff: false
+
+- name: Renew the existing seal token (maintenance, not a configuration change)
+  ansible.builtin.uri:
+    url: "{{ seal_addr }}/v1/auth/token/renew-self"
+    ca_path: "{{ vault_ca_cert }}"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ lookup('file', seal_token_path) | trim }}"
+  no_log: true
+  changed_when: false
+  when:
+    - seal_token_file.stat.exists
+    - seal_token_check.status | default(0) == 200
+    - not ansible_check_mode

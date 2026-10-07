@@ -1,0 +1,40 @@
+---
+# bootstrap.yml — the seal chain, in order:
+#   A. red-vault-s: init (Shamir 1/1), unseal, Transit key, seal token
+#   B. cluster nodes: seal token into systemd, start Vault
+#   C. cluster: init once (recovery keys), auto-unseal, join, platform token
+#
+#   make bootstrap
+
+- name: Build the in-memory inventory
+  ansible.builtin.import_playbook: discover.yml
+
+- name: A — seal Vault
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [seal, unseal]
+  tasks:
+    - name: Bootstrap the seal Vault
+      ansible.builtin.include_role:
+        name: vault_bootstrap
+        tasks_from: seal.yml
+
+- name: B — distribute the seal token and start the cluster nodes
+  hosts: vault
+  become: true
+  gather_facts: false
+  tags: [cluster]
+  roles:
+    - vault_configure
+
+- name: C — cluster
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [cluster, unseal]
+  tasks:
+    - name: Bootstrap the cluster
+      ansible.builtin.include_role:
+        name: vault_bootstrap
+        tasks_from: cluster.yml
