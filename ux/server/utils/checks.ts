@@ -1,6 +1,8 @@
 import { isIP } from 'node:net'
-import type { EvidenceCheck, LabRole } from '../../shared/types'
+import type { EvidenceCheck, LabRole, VaultRole } from '../../shared/types'
+import { isVaultRole } from '../../shared/posture'
 import { runCommand } from './command'
+import { labMode } from './mode'
 import { cached } from './cache'
 import type { ReportCheck, ValidationReport } from './repository'
 
@@ -10,21 +12,8 @@ const check = (id: string, label: string, status: EvidenceCheck['status'], sourc
 /** Validation evidence older than this is shown as stale ("warn"), not trusted as current. */
 export const REPORT_MAX_AGE_MS = 24 * 60 * 60 * 1000
 
-// Fixed, read-only guest probe. Only the two URLs are passed as positional
-// arguments; both are built server-side from a validated IP address.
-const NODE_PROBE = String.raw`
-release="$(cat /etc/redhat-release 2>/dev/null || true)"
-architecture="$(uname -m 2>/dev/null || true)"
-selinux="$(getenforce 2>/dev/null || true)"
-if [ -z "$(swapon --show --noheadings 2>/dev/null)" ]; then swap=disabled; else swap=active; fi
-firewall="$(systemctl is-active firewalld 2>/dev/null || true)"
-failed_services="$(systemctl --failed --no-legend --plain 2>/dev/null | sed '/^[[:space:]]*$/d' | wc -l | tr -d ' ')"
-root_fs="$(df -B1 --output=size,pcent / 2>/dev/null | tail -n 1 | tr -s ' ' | sed 's/^ //' || true)"
-vault_service="$(systemctl is-active vault 2>/dev/null || true)"
-vault_health="$(curl --silent --max-time 4 --cacert /opt/vault/tls/ca.crt "$1" 2>/dev/null | tr -d '\n' || true)"
-vault_seal="$(curl --silent --max-time 4 --cacert /opt/vault/tls/ca.crt "$2" 2>/dev/null | tr -d '\n' || true)"
-printf 'release=%s\narchitecture=%s\nselinux=%s\nswap=%s\nfirewall=%s\nfailed_services=%s\nroot_fs=%s\nvault_service=%s\nvault_health=%s\nvault_seal=%s\n' "$release" "$architecture" "$selinux" "$swap" "$firewall" "$failed_services" "$root_fs" "$vault_service" "$vault_health" "$vault_seal"
-`.trim()
+/** Installed by Ansible (role lab_probe) on every node; takes no arguments. */
+export const PROBE_PATH = '/usr/local/libexec/red-pass-probe'
 
 export interface VaultFacts {
   reachable: boolean
@@ -34,7 +23,11 @@ export interface VaultFacts {
 }
 
 export interface NodeChecks {
+  /** The probe answered (VM mode derives the node state from this). */
+  reachable: boolean
+  release: string | null
   rhel: EvidenceCheck[]
+  /** Vault evidence on Vault nodes, service evidence on service nodes. */
   vault: EvidenceCheck[]
   facts: VaultFacts
   /** Root filesystem size from the guest; Multipass reports only the EFI partition for these RHEL images. */
@@ -66,9 +59,9 @@ function json(value: string | undefined): Record<string, unknown> | null {
 }
 
 /** The seal type a node must report: the seal Vault is Shamir, cluster nodes use the transit seal. */
-export const expectedSealType = (role: LabRole) => role === 'seal' ? 'shamir' : 'transit'
+export const expectedSealType = (role: VaultRole) => role === 'seal' ? 'shamir' : 'transit'
 
-export function vaultEvidence(role: LabRole, values: Record<string, string>): { checks: EvidenceCheck[], facts: VaultFacts } {
+export function vaultEvidence(role: VaultRole, values: Record<string, string>): { checks: EvidenceCheck[], facts: VaultFacts } {
   const health = json(values.vault_health)
   const seal = json(values.vault_seal)
   if (!health || !seal) {
@@ -98,21 +91,45 @@ export function vaultEvidence(role: LabRole, values: Record<string, string>): { 
   }
 }
 
+/** Service VMs: is the node's own service up and answering over TLS? */
+export function serviceEvidence(values: Record<string, string>): EvidenceCheck[] {
+  const unit = values.service_unit || 'service'
+  return [
+    check('service-unit', `${unit} service`, values.service_active === 'active' ? 'pass' : 'fail', 'rhel', values.service_active || 'inactive'),
+    check('service-https', 'HTTPS health', values.service_http === '200' ? 'pass' : 'fail', 'rhel', values.service_http ? `HTTP ${values.service_http} over verified TLS` : 'No answer'),
+  ]
+}
+
+/** Run the installed probe: via Multipass on the host, via forced-command SSH in the VM. */
+export async function runProbe(name: string, address: string): Promise<string> {
+  if (labMode() === 'vm') {
+    const key = process.env.RED_PASS_PROBE_KEY || '/etc/red-ux/probe_ed25519'
+    const knownHosts = process.env.RED_PASS_KNOWN_HOSTS || '/etc/red-ux/known_hosts'
+    const { stdout } = await runCommand('ssh', [
+      '-F', '/dev/null', '-i', key, '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes',
+      '-o', 'StrictHostKeyChecking=yes', '-o', `UserKnownHostsFile=${knownHosts}`, '-o', 'ConnectTimeout=4',
+      `redprobe@${address}`,
+    ], { timeoutMs: 12_000 })
+    return stdout
+  }
+  const { stdout } = await runCommand('multipass', ['exec', name, '--', PROBE_PATH], { timeoutMs: 12_000 })
+  return stdout
+}
+
 export async function nodeChecks(name: string, address: string | undefined, role: LabRole): Promise<NodeChecks> {
   return cached(`node:${name}:${address || 'unknown'}`, 10_000, async () => {
     if (!address || isIP(address) !== 4) {
       return {
+        reachable: false,
+        release: null,
         rhel: [check('rhel-reachable', 'Guest checks', 'unknown', 'rhel', 'A validated node address is unavailable.')],
-        vault: [check('vault-reachable', 'Vault health', 'unknown', 'vault', 'A validated node address is unavailable.')],
+        vault: [check('vault-reachable', isVaultRole(role) ? 'Vault health' : 'Service health', 'unknown', isVaultRole(role) ? 'vault' : 'rhel', 'A validated node address is unavailable.')],
         facts: NO_FACTS,
         rootBytes: null,
       }
     }
     try {
-      const base = `https://${address}:8200/v1/sys`
-      const healthUrl = role === 'seal' ? `${base}/health` : `${base}/health?standbyok=true&perfstandbyok=true`
-      const { stdout } = await runCommand('multipass', ['exec', name, '--', 'sudo', '/bin/sh', '-c', NODE_PROBE, 'node-probe', healthUrl, `${base}/seal-status`], { timeoutMs: 12_000 })
-      const values = parseProbe(stdout.trim())
+      const values = parseProbe((await runProbe(name, address)).trim())
       const rhel = [
         check('rhel-release', 'Operating system', /^Red Hat Enterprise Linux(?: Server)? release 9\./.test(values.release || '') ? 'pass' : 'warn', 'rhel', values.release || 'Release unavailable'),
         check('architecture', 'Architecture', ['aarch64', 'arm64'].includes(values.architecture || '') ? 'pass' : 'warn', 'rhel', values.architecture || 'Unknown'),
@@ -125,12 +142,16 @@ export async function nodeChecks(name: string, address: string | undefined, role
       rhel.push(root
         ? check('root-fs', 'Root filesystem', root.usedPercent < 85 ? 'pass' : 'warn', 'rhel', `${(root.bytes / 1024 ** 3).toFixed(1)} GB, ${root.usedPercent}% used`)
         : check('root-fs', 'Root filesystem', 'unknown', 'rhel', 'Size unavailable'))
+      const base = { reachable: true, release: values.release || null, rhel, rootBytes: root?.bytes ?? null }
+      if (!isVaultRole(role)) return { ...base, vault: serviceEvidence(values), facts: NO_FACTS }
       const vault = vaultEvidence(role, values)
-      return { rhel, vault: vault.checks, facts: vault.facts, rootBytes: root?.bytes ?? null }
+      return { ...base, vault: vault.checks, facts: vault.facts }
     } catch {
       return {
+        reachable: false,
+        release: null,
         rhel: [check('rhel-reachable', 'Guest checks', 'fail', 'rhel', 'The guest did not answer the fixed read-only probe.')],
-        vault: [check('vault-reachable', 'Vault health', 'fail', 'vault', 'The guest did not answer the fixed read-only probe.')],
+        vault: [check('vault-reachable', isVaultRole(role) ? 'Vault health' : 'Service health', 'fail', isVaultRole(role) ? 'vault' : 'rhel', 'The guest did not answer the fixed read-only probe.')],
         facts: NO_FACTS,
         rootBytes: null,
       }

@@ -1,0 +1,6 @@
+---
+- name: Restart red-ux
+  ansible.builtin.systemd_service:
+    name: red-ux
+    state: restarted
+    daemon_reload: true

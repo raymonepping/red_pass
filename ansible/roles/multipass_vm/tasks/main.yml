@@ -10,6 +10,12 @@
   register: lab_image_stat
   failed_when: not lab_image_stat.stat.exists
 
+- name: Ensure the image clone directory exists
+  ansible.builtin.file:
+    path: "{{ lab_image_clone_dir }}"
+    state: directory
+    mode: "0755"
+
 - name: Read the Multipass inventory
   ansible.builtin.command:
     argv: [multipass, list, --format, json]
@@ -43,12 +49,31 @@
     quiet: true
   loop: "{{ lab_nodes | select('in', mp_state) | list }}"
 
+# Multipass caches file:// images by content and resolves them through the
+# disk of the last instance created from that content. If that VM is running,
+# its disk is write-locked and `launch` fails ("Failed to get shared write
+# lock"). Give every launch a unique image identity: an APFS clone (cp -c,
+# instant) plus a short per-node marker appended after the last qcow2
+# cluster, which qemu ignores. The clone is removed after the launch.
+- name: Clone the source image per missing instance with a unique identity
+  ansible.builtin.shell:
+    cmd: >-
+      cp -c "$SRC" "$DST.tmp" &&
+      printf '\nred-pass-image-identity:%s\n' "$NODE" >> "$DST.tmp" &&
+      mv "$DST.tmp" "$DST"
+    creates: "{{ lab_image_clone_dir }}/{{ item }}.qcow2"
+  environment:
+    SRC: "{{ lab_image }}"
+    DST: "{{ lab_image_clone_dir }}/{{ item }}.qcow2"
+    NODE: "{{ item }}"
+  loop: "{{ lab_nodes | reject('in', mp_state) | list }}"
+
 - name: Launch missing lab instances in parallel
   ansible.builtin.command:
     argv:
       - multipass
       - launch
-      - "file://{{ lab_image }}"
+      - "file://{{ lab_image_clone_dir }}/{{ item }}.qcow2"
       - --name
       - "{{ item }}"
       - --cpus
@@ -62,7 +87,7 @@
       - --timeout
       - "{{ lab_launch_timeout | string }}"
   vars:
-    lab_size: "{{ lab_sizing.seal if item == lab_seal_node else lab_sizing.cluster }}"
+    lab_size: "{{ lab_service_nodes[item] if item in lab_service_nodes else (lab_sizing.seal if item == lab_seal_node else lab_sizing.cluster) }}"
   loop: "{{ lab_nodes | reject('in', mp_state) | list }}"
   async: "{{ lab_launch_timeout + 120 }}"
   poll: 0
@@ -80,6 +105,12 @@
   retries: "{{ ((lab_launch_timeout + 120) / 10) | int }}"
   delay: 10
   changed_when: false
+
+- name: Remove the per-launch image clones
+  ansible.builtin.file:
+    path: "{{ lab_image_clone_dir }}/{{ item }}.qcow2"
+    state: absent
+  loop: "{{ lab_nodes }}"
 
 - name: Start stopped or suspended lab instances
   ansible.builtin.command:
@@ -131,7 +162,8 @@
   ansible.builtin.debug:
     msg: >-
       {{ item }} has {{ lab_instance_info[item].cpus }} CPUs but
-      {{ (lab_sizing.seal if item == lab_seal_node else lab_sizing.cluster).cpus }}
-      are configured. Existing VMs are never resized automatically.
+      {{ lab_size.cpus }} are configured. Existing VMs are never resized automatically.
+  vars:
+    lab_size: "{{ lab_service_nodes[item] if item in lab_service_nodes else (lab_sizing.seal if item == lab_seal_node else lab_sizing.cluster) }}"
   loop: "{{ lab_nodes }}"
-  when: lab_instance_info[item].cpus != (lab_sizing.seal if item == lab_seal_node else lab_sizing.cluster).cpus
+  when: lab_instance_info[item].cpus != lab_size.cpus

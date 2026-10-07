@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { PostureCategory } from '../../../shared/types'
+import { ROLE_DESCRIPTIONS, isVaultRole } from '#shared/posture'
 
 const route = useRoute()
 const name = computed(() => String(route.params.name))
@@ -12,8 +13,10 @@ const { selectedAction, selectedInstance, pending, toast, requestAction, closeAc
 const instance = computed(() => plane.value?.instances.find(item => item.name === name.value) || null)
 const state = computed(() => instance.value?.state.toLowerCase() || '')
 const gb = (bytes: number | null | undefined) => bytes == null ? 'Unavailable' : `${(bytes / 1024 ** 3).toFixed(bytes >= 10 * 1024 ** 3 ? 0 : 1)} GB`
-const verbs: Record<string, string> = { provisioned: 'Ansible launches it', rhel: 'RHEL runs it', ansible: 'Ansible converges it', vault: 'Vault secures it' }
-const roleLabel = computed(() => ({ seal: 'Seal Vault · Shamir 1/1 · Transit key autounseal', leader: 'Cluster node · initial leader · transit seal', follower: 'Cluster node · transit seal' } as const)[instance.value?.labRole ?? 'follower'])
+const verbs: Record<string, string> = { provisioned: 'Ansible launches it', rhel: 'RHEL runs it', ansible: 'Ansible converges it', vault: 'Vault secures it', service: 'its service answers' }
+const roleLabel = computed(() => instance.value?.labRole ? ROLE_DESCRIPTIONS[instance.value.labRole] : 'Not a red_pass node')
+const observeOnly = computed(() => plane.value?.mode === 'vm')
+const vaultNode = computed(() => isVaultRole(instance.value?.labRole))
 const nodeVault = computed(() => instance.value?.posture.vault.evidence.filter(item => item.scope === 'node') || [])
 const scoped = computed(() => instance.value?.posture.vault.evidence.filter(item => item.scope !== 'node') || [])
 
@@ -40,11 +43,11 @@ onBeforeUnmount(() => clearInterval(timer))
       <section class="vg-hero detail-hero" aria-labelledby="instance-title">
         <div class="hero-head">
           <div class="detail-identity">
-            <p class="eyebrow">{{ instance.labRole ? roleLabel : 'Not a red_pass node' }}</p>
+            <p class="eyebrow">{{ roleLabel }}</p>
             <h1 id="instance-title">{{ instance.name }}</h1>
             <p>{{ instance.release || 'Operating system unavailable' }} · <span class="mono">{{ instance.ipv4[0] || 'no IPv4' }}</span> · {{ instance.state }}</p>
           </div>
-          <div class="detail-actions">
+          <div v-if="!observeOnly" class="detail-actions">
             <button v-if="state === 'running'" class="secondary-button" type="button" :disabled="pending" @click="requestAction('restart', instance)">Restart</button>
             <button v-if="state === 'running'" class="secondary-button" type="button" :disabled="pending" @click="requestAction('stop', instance)">Stop</button>
             <button v-else-if="instance.deleted" class="secondary-button" type="button" :disabled="pending" @click="requestAction('recover', instance)">Recover</button>
@@ -62,9 +65,9 @@ onBeforeUnmount(() => clearInterval(timer))
 
       <div class="detail-grid">
         <section class="panel vg-glass">
-          <div class="panel-head"><div><h2>Resources</h2><p>Live from Multipass.</p></div><span class="source-tag">multipass info</span></div>
+          <div class="panel-head"><div><h2>Resources</h2><p>{{ observeOnly ? 'From the ownership manifest and the guest probe.' : 'Live from Multipass.' }}</p></div><span class="source-tag">{{ observeOnly ? 'manifest + probe' : 'multipass info' }}</span></div>
           <dl class="data-list">
-            <div><dt>State</dt><dd>{{ instance.state }}</dd></div>
+            <div><dt>{{ observeOnly ? 'Reachability' : 'State' }}</dt><dd>{{ instance.state }}</dd></div>
             <div><dt>IPv4</dt><dd class="mono">{{ instance.ipv4.join(', ') || 'Unavailable' }}</dd></div>
             <div><dt>CPU</dt><dd>{{ instance.resources.cpus ?? 'Unavailable' }}</dd></div>
             <div><dt>Memory</dt><dd>{{ gb(instance.resources.memoryBytes) }}</dd></div>
@@ -79,12 +82,12 @@ onBeforeUnmount(() => clearInterval(timer))
         </section>
 
         <section class="panel vg-glass">
-          <div class="panel-head"><div><h2>Vault on this node</h2><p>Live probe over verified TLS.</p></div><span class="source-tag">{{ checking ? 'checking…' : 'node scope' }}</span></div>
+          <div class="panel-head"><div><h2>{{ vaultNode ? 'Vault on this node' : 'Service on this node' }}</h2><p>Live read-only probe.</p></div><span class="source-tag">{{ checking ? 'checking…' : 'node scope' }}</span></div>
           <EvidenceRows v-if="nodeVault.length" :items="nodeVault" />
           <EvidenceRows v-else :items="instance.posture.vault.evidence" />
         </section>
 
-        <section class="panel vg-glass">
+        <section v-if="vaultNode" class="panel vg-glass">
           <div class="panel-head"><div><h2>{{ instance.labRole === 'seal' ? 'Seal chain' : 'Cluster and seal chain' }}</h2><p>From the last make validate, with its age.</p></div><span class="source-tag">.build/validation.json</span></div>
           <EvidenceRows v-if="scoped.length" :items="scoped" />
           <p v-else class="chain-hint">Cluster evidence is shown only for running red_pass nodes.</p>

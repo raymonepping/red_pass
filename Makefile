@@ -81,3 +81,13 @@ ui-check: ## UI typecheck, lint, unit tests and build
 
 ui-a11y: ## axe WCAG 2.1 AA scan of every screen (UI must be running)
 	cd ux && RED_PASS_UI_URL=http://127.0.0.1:$(UI_PORT) npm run test:a11y
+
+.PHONY: ux-build ux-deploy ux-sync
+ux-build: ## Build the UI bundle for red-ux-1 (.build/ux, content-addressed)
+	./scripts/ux-build.sh
+
+ux-deploy: ux-build ## Deploy the UI to red-ux-1 (observe-only VM mode)
+	$(RUN) ux
+
+ux-sync: ## Push the current evidence to red-ux-1
+	TAGS=sync $(RUN) ux

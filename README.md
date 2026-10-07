@@ -25,6 +25,7 @@ make lab
 | `red-vault-1` | cluster (initial leader) | 2 CPU · 4G · 20G | transit → `red-vault-s` |
 | `red-vault-2` | cluster | 2 CPU · 4G · 20G | transit → `red-vault-s` |
 | `red-vault-3` | cluster | 2 CPU · 4G · 20G | transit → `red-vault-s` |
+| `red-ux-1` | control-plane UI (observe-only VM mode) | 1 CPU · 2G · 10G | — |
 
 The operator only ever unseals `red-vault-s` (one key). The cluster nodes hold
 a periodic, narrowly scoped Transit token and unseal themselves. See
@@ -84,6 +85,7 @@ vault namespace list
 | `make destroy` | Delete + purge **only** the four `red-vault-*` VMs (confirmation) |
 | `make rhel-unregister` | Unregister guests from RHSM (`CONFIRM_RHSM_UNREGISTER=yes`) |
 | `make multi-pass-start` | Start multi_pass's VMs again |
+| `make ux-build` / `ux-deploy` / `ux-sync` | Build the UI bundle / deploy it to red-ux-1 / push fresh evidence |
 
 ## Secret boundary
 
@@ -105,11 +107,18 @@ evidence: `ownership.json`, `convergence.json`, `validation.json`.
 
 ## Control plane UI
 
-`make ui-install && make ui-start` serves a local glass console on
-`http://127.0.0.1:3310`: the fleet, the live seal chain, and four
-evidence-backed indicators per VM (Provisioned · RHEL healthy · Ansible
-converged · Vault secured). See [ux/README.md](ux/README.md) and
-[DESIGN.md](DESIGN.md).
+Two ways to run the same glass console (fleet, live seal chain, four
+evidence-backed indicators per VM):
+
+| Mode | Where | How | Lifecycle actions |
+| --- | --- | --- | --- |
+| **VM** | `https://<red-ux-1 ip>:3443` (lab-CA TLS) | deployed by `make lab` / `make ux-deploy` | none — observe-only |
+| **Host** | `http://127.0.0.1:3310` | `make ui-install && make ui-start` | start/stop/restart/suspend/delete/recover/purge via Multipass |
+
+In VM mode the UI reads the evidence Ansible pushes (`make ux-sync`, also the
+last step of `make lab`) and probes each node over SSH with a forced-command
+key that can only run the read-only probe, only from red-ux-1. See
+[ux/README.md](ux/README.md) and [DESIGN.md](DESIGN.md).
 
 ## Recovery and operations
 

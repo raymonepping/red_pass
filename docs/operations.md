@@ -15,6 +15,16 @@ rerun that phase (`make <phase>`), then `make lab`. A converged lab reports
 | Node IP changed | `make lab` reissues only the certificates whose IP SAN is missing, updates the hosts block, and restarts nodes one at a time. |
 | Lost `.secrets/*-init.json` | Do **not** reinitialise. Restore from backup. Bootstrap refuses to run when Vault is initialised but the file is missing (and vice versa). |
 
+## Launching new VMs next to running ones
+
+Multipass caches `file://` images by **content** and resolves them through
+the disk of the last instance created from that content; when that VM is
+running its disk is write-locked and `multipass launch` fails with
+`Failed to get shared "write" lock`. `multipass_vm` therefore launches every
+new VM from its own APFS clone under `/Users/Shared/red-pass-images` (outside
+`~/Documents`, which `multipassd` cannot read) with a per-node marker appended
+after the last qcow2 cluster, and deletes the clone afterwards.
+
 ## Restarts and the seal chain
 
 - **Cluster node restarted** — nothing to do. It auto-unseals through

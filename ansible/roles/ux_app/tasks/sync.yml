@@ -1,0 +1,41 @@
+---
+# Push the non-secret evidence the VM-mode UI reads. The automation digest
+# is computed on the controller now, with the same script make lab uses.
+
+- name: Compute the current automation digest
+  ansible.builtin.command:
+    argv: ["{{ repo_root }}/scripts/automation-digest.sh"]
+  register: ux_digest
+  changed_when: false
+  check_mode: false
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Check which evidence files exist
+  ansible.builtin.stat:
+    path: "{{ build_dir }}/{{ item }}"
+  loop: [ownership.json, convergence.json, validation.json]
+  register: ux_evidence_files
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Push the evidence files
+  ansible.builtin.copy:
+    src: "{{ item.stat.path }}"
+    dest: "{{ ux_evidence_dir }}/{{ item.item }}"
+    owner: root
+    group: "{{ ux_user }}"
+    mode: "0644"
+  loop: "{{ ux_evidence_files.results | selectattr('stat.exists') | list }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Push the automation digest
+  ansible.builtin.copy:
+    content: "{{ ux_digest.stdout | trim }}\n"
+    dest: "{{ ux_evidence_dir }}/automation-digest.txt"
+    owner: root
+    group: "{{ ux_user }}"
+    mode: "0644"

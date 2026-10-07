@@ -1,9 +1,12 @@
 export type EvidenceStatus = 'pass' | 'warn' | 'fail' | 'unknown'
 export type EvidenceScope = 'node' | 'cluster' | 'seal-chain'
 export type EvidenceSource = 'multipass' | 'ansible' | 'rhel' | 'vault'
-export type PostureKind = 'provisioned' | 'rhel' | 'ansible' | 'vault'
+/** The fourth posture slot is `vault` on Vault nodes and `service` on service VMs. */
+export type PostureKind = 'provisioned' | 'rhel' | 'ansible' | 'vault' | 'service'
 /** Role of a red_pass node as recorded by Ansible; null for any other VM. */
-export type LabRole = 'seal' | 'leader' | 'follower'
+export type LabRole = 'seal' | 'leader' | 'follower' | 'ux' | 'identity' | 'proxy'
+export type VaultRole = Extract<LabRole, 'seal' | 'leader' | 'follower'>
+export type LabMode = 'host' | 'vm'
 
 export interface EvidenceCheck {
   id: string
@@ -39,7 +42,8 @@ export interface InstanceSummary {
   snapshotCount: number | null
   deleted: boolean
   labRole: LabRole | null
-  posture: Record<PostureKind, PostureCategory>
+  /** provisioned → rhel → ansible → vault|service (fourth slot keyed `vault`). */
+  posture: { provisioned: PostureCategory, rhel: PostureCategory, ansible: PostureCategory, vault: PostureCategory }
 }
 
 export interface EnvironmentSummary {
@@ -67,6 +71,7 @@ export interface SealChain {
 }
 
 export interface InstancesResponse {
+  mode: LabMode
   available: boolean
   message: string | null
   observedAt: string
@@ -77,6 +82,7 @@ export interface InstancesResponse {
 }
 
 export interface InstanceDetailResponse {
+  mode: LabMode
   available: boolean
   message: string | null
   observedAt: string

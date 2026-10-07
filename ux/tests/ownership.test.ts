@@ -21,7 +21,7 @@ describe('Ansible ownership truth rules', () => {
   it('is unmanaged when a readable manifest excludes the VM', () => expect(provisionOwnership('vault-1', manifest)).toBe('unmanaged'))
   it('keeps only allow-listed nodes and fields', () => {
     expect(Object.keys(manifest.nodes).sort()).toEqual(['red-vault-1', 'red-vault-s'])
-    expect(manifest.nodes['red-vault-1']).toEqual({ role: 'leader', ipv4: '192.168.252.13', firstSeen: '2026-10-07T12:01:08Z' })
+    expect(manifest.nodes['red-vault-1']).toEqual({ role: 'leader', ipv4: '192.168.252.13', firstSeen: '2026-10-07T12:01:08Z', cpus: null, memory: null })
   })
 })
 

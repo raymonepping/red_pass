@@ -2,6 +2,7 @@ import { operationMessage } from '../../../utils/operation-message'
 import type { ActionRequest, ActionResponse, InstanceAction } from '../../../../shared/types'
 
 export default defineEventHandler(async (event): Promise<ActionResponse> => {
+  assertHostMode()
   assertLocalOrigin(event)
   const name = getRouterParam(event, 'name') || ''
   const action = getRouterParam(event, 'action') || ''

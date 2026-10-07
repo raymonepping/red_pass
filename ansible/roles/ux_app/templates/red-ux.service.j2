@@ -1,0 +1,33 @@
+# {{ ansible_managed }}
+[Unit]
+Description=red_pass control plane UI (observe-only VM mode)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ ux_user }}
+Group={{ ux_user }}
+Environment=NODE_ENV=production
+Environment=HOST=0.0.0.0
+Environment=PORT={{ ux_port }}
+Environment=RED_PASS_MODE=vm
+Environment=RED_PASS_EVIDENCE_DIR={{ ux_evidence_dir }}
+Environment=RED_PASS_PROBE_KEY={{ ux_conf_dir }}/probe_ed25519
+Environment=RED_PASS_KNOWN_HOSTS={{ ux_conf_dir }}/known_hosts
+Environment=RED_PASS_ALLOWED_ORIGINS={{ (['https://' ~ ansible_host ~ ':' ~ ux_port] + ux_extra_origins) | join(',') }}
+ExecStart=/usr/bin/node {{ ux_home }}/start.mjs
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+ReadOnlyPaths={{ ux_home }} {{ ux_conf_dir }} {{ ux_evidence_dir }}
+
+[Install]
+WantedBy=multi-user.target

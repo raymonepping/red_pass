@@ -87,6 +87,24 @@ Peer names resolve through `/etc/hosts`. Multipass vendor-data sets
 `vault_configure` therefore manages the same block in
 `/etc/cloud/templates/hosts.redhat.tmpl` as well.
 
+## Service VMs and the node probe
+
+`red-ux-1` runs the control-plane UI in **VM mode**: it cannot reach the
+Multipass daemon, so it never changes VM lifecycle. Its evidence comes from:
+
+- `/var/lib/red-ux/evidence/` — `ownership.json`, `convergence.json`,
+  `validation.json` and `automation-digest.txt`, pushed by `ux.yml`
+  (`make ux-sync`, last step of `make lab`);
+- `/usr/local/libexec/red-pass-probe` on every node (role `lab_probe`): one
+  fixed read-only script. The UI runs it over SSH as the unprivileged
+  `redprobe`, whose key is `restrict,command="…red-pass-probe",from="<red-ux-1>"`
+  — no shell, no forwarding, no other source. Host mode runs the same probe
+  through `multipass exec`.
+
+Service VMs get a fourth indicator **Service** (their own unit + HTTPS
+health) instead of Vault; cluster and seal-chain evidence are never
+attributed to them.
+
 ## Data flow and evidence
 
 | Artifact | Writer | Reader | Contains |

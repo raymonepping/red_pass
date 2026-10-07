@@ -1,0 +1,27 @@
+---
+# ux.yml — deploy the control-plane UI to red-ux-1 (observe-only VM mode).
+#
+#   make ux-deploy     (builds the bundle first)
+#   make ux-sync       (evidence only: TAGS=sync)
+
+- name: Build the in-memory inventory
+  ansible.builtin.import_playbook: discover.yml
+
+- name: Control-plane UI
+  hosts: ux
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Deploy the UI
+      ansible.builtin.include_role:
+        name: ux_app
+      tags: [deploy]
+
+    # Dynamic includes do not pass tags to their tasks; `apply` does.
+    - name: Sync evidence only
+      ansible.builtin.include_role:
+        name: ux_app
+        tasks_from: sync.yml
+        apply:
+          tags: [sync]
+      tags: [never, sync]

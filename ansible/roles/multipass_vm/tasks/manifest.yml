@@ -21,7 +21,7 @@
     lab_manifest_nodes: >-
       {{ lab_manifest_nodes | default({}) | combine({item: {
            'launched_by_ansible': true,
-           'role': 'seal' if item == lab_seal_node else ('leader' if item == vault_leader else 'follower'),
+           'role': lab_service_nodes[item].role if item in lab_service_nodes else ('seal' if item == lab_seal_node else ('leader' if item == vault_leader else 'follower')),
            'ipv4': lab_instances[item],
            'cpus': lab_size.cpus,
            'memory': lab_size.memory,
@@ -31,7 +31,7 @@
              if lab_previous_nodes[item] is defined
              else now(utc=true).strftime('%Y-%m-%dT%H:%M:%SZ')}}) }}
   vars:
-    lab_size: "{{ lab_sizing.seal if item == lab_seal_node else lab_sizing.cluster }}"
+    lab_size: "{{ lab_service_nodes[item] if item in lab_service_nodes else (lab_sizing.seal if item == lab_seal_node else lab_sizing.cluster) }}"
   loop: "{{ lab_nodes }}"
 
 - name: Write the ownership manifest

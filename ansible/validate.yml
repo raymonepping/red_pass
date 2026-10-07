@@ -11,7 +11,7 @@
   ansible.builtin.import_playbook: discover.yml
 
 - name: Node-level host evidence
-  hosts: red_pass
+  hosts: vault:vault_seal
   become: true
   gather_facts: false
   tasks:
@@ -62,7 +62,7 @@
         url: "https://{{ hostvars[item].ansible_host }}:{{ vault_api_port }}/v1/sys/{{ 'health?standbyok=true&perfstandbyok=true' if item != lab_seal_node else 'health' }}"
         ca_path: "{{ vault_ca_cert }}"
         status_code: [200, 429, 472, 473, 501, 503]
-      loop: "{{ groups['red_pass'] | sort }}"
+      loop: "{{ (groups['vault'] + groups['vault_seal']) | sort }}"
       register: vault_health
       failed_when: false
       check_mode: false
@@ -71,7 +71,7 @@
       ansible.builtin.uri:
         url: "https://{{ hostvars[item].ansible_host }}:{{ vault_api_port }}/v1/sys/seal-status"
         ca_path: "{{ vault_ca_cert }}"
-      loop: "{{ groups['red_pass'] | sort }}"
+      loop: "{{ (groups['vault'] + groups['vault_seal']) | sort }}"
       register: vault_seal
       failed_when: false
       check_mode: false

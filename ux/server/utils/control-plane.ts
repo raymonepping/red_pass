@@ -1,8 +1,9 @@
 import { resolve } from 'node:path'
 import type { EvidenceCheck, InstanceSummary, InstancesResponse, LabRole, PostureCategory, SealChain } from '../../shared/types'
-import { aggregateStatus, category } from '../../shared/posture'
+import { aggregateStatus, category, isVaultRole } from '../../shared/posture'
 import type { MultipassInstance } from './multipass'
-import { instanceInfo, listInstances } from './multipass'
+import { bytes, instanceInfo, listInstances } from './multipass'
+import { labMode } from './mode'
 import { convergenceState, loadRepositoryEvidence, provisionOwnership, type RepositoryEvidence } from './repository'
 import { nodeChecks, reportEvidence, type NodeChecks } from './checks'
 import { publicError } from './command'
@@ -50,36 +51,61 @@ function ansiblePosture(instance: MultipassInstance, repo: RepositoryEvidence, p
   }
 }
 
-function unavailableCategory(kind: 'rhel' | 'vault', reason: string, now: string): PostureCategory {
-  return category(kind, 'Unknown', [evidence(`${kind}-unavailable`, kind === 'rhel' ? 'Guest checks' : 'Vault health', 'unknown', kind, reason, now)])
+function unavailableCategory(kind: 'rhel' | 'vault' | 'service', reason: string, now: string): PostureCategory {
+  const label = kind === 'rhel' ? 'Guest checks' : kind === 'vault' ? 'Vault health' : 'Service health'
+  return category(kind, 'Unknown', [evidence(`${kind}-unavailable`, label, 'unknown', kind === 'service' ? 'rhel' : kind, reason, now)])
 }
 
 interface BuiltInstance { summary: InstanceSummary, checks: NodeChecks | null }
 
 async function buildInstance(instance: MultipassInstance, repo: RepositoryEvidence, report: ReturnType<typeof reportEvidence>, now: string, deep: boolean): Promise<BuiltInstance> {
+  const vm = labMode() === 'vm'
   const provisioned = provisionedPosture(instance, repo, now)
   const labRole: LabRole | null = repo.manifest.nodes[instance.name]?.role ?? null
-  const running = instance.state.toLowerCase() === 'running'
+  const vaultNode = isVaultRole(labRole)
+  // VM mode cannot see Multipass state: it always tries the probe and derives
+  // Reachable / Unreachable from the answer.
+  const running = vm || instance.state.toLowerCase() === 'running'
   const mayCheck = deep && labRole !== null && running
   const checks = mayCheck ? await nodeChecks(instance.name, instance.ipv4[0], labRole) : null
   const reason = !deep ? 'Posture checks are loading.' : labRole ? 'The instance is not running.' : 'Checks run only for red_pass nodes.'
+  const fourth = vaultNode ? 'vault' : 'service'
 
   const rhel = checks
     ? category('rhel', aggregateStatus(checks.rhel, { pass: 'Healthy', warn: 'Attention required', fail: 'Unreachable', unknown: 'Unknown' }), checks.rhel)
     : unavailableCategory('rhel', reason, now)
   const ansible = ansiblePosture(instance, repo, labRole !== null, now)
-  // Cluster-scope evidence is attributed only to cluster nodes; the seal Vault
-  // is judged on its own node checks plus the seal-chain evidence.
-  const scoped = labRole === 'seal' ? report.sealChain : [...report.cluster, ...report.sealChain]
-  const vaultEvidence = checks ? [...checks.vault, ...scoped] : []
+  // Cluster-scope evidence goes to cluster nodes only; the seal Vault gets the
+  // seal-chain evidence; service VMs are judged on their own service.
+  const scoped = labRole === 'seal' ? report.sealChain : vaultNode ? [...report.cluster, ...report.sealChain] : []
+  const fourthEvidence = checks ? [...checks.vault, ...scoped] : []
+  const labels = vaultNode
+    ? { pass: 'Secured', warn: 'Attention required', fail: 'Not ready', unknown: 'Unknown' }
+    : { pass: 'Healthy', warn: 'Attention required', fail: 'Down', unknown: 'Unknown' }
   const vault = checks
-    ? category('vault', aggregateStatus(vaultEvidence, { pass: 'Secured', warn: 'Attention required', fail: 'Not ready', unknown: 'Unknown' }), vaultEvidence)
-    : unavailableCategory('vault', reason, now)
+    ? category(fourth, aggregateStatus(fourthEvidence, labels), fourthEvidence)
+    : unavailableCategory(fourth, reason, now)
 
   // Multipass reports only the EFI partition for these RHEL guests; prefer the
   // guest's own root filesystem size when the probe has it.
   const resources = checks?.rootBytes ? { ...instance.resources, diskBytes: checks.rootBytes } : instance.resources
-  return { summary: { ...instance, resources, labRole, posture: { provisioned, rhel, ansible, vault } }, checks }
+  const state = vm ? (checks?.reachable ? 'Reachable' : checks ? 'Unreachable' : 'Checking') : instance.state
+  const release = instance.release ?? checks?.release ?? null
+  return { summary: { ...instance, state, release, resources, labRole, posture: { provisioned, rhel, ansible, vault } }, checks }
+}
+
+/** VM mode: the ownership manifest is the inventory (Multipass is not reachable). */
+function manifestInstances(repo: RepositoryEvidence): MultipassInstance[] {
+  return Object.entries(repo.manifest.nodes).map(([name, node]) => ({
+    name,
+    state: 'Checking',
+    ipv4: node.ipv4 ? [node.ipv4] : [],
+    release: null,
+    imageHash: null,
+    resources: { cpus: node.cpus, memoryBytes: node.memory ? bytes(node.memory) : null, diskBytes: null },
+    snapshotCount: null,
+    deleted: false,
+  }))
 }
 
 /** Live seal chain: the seal Vault and, per cluster node, whether it is transit-sealed and unsealed. */
@@ -114,26 +140,30 @@ export function repositoryRoot(): string {
 export async function getControlPlane(options: { deep?: boolean } = {}): Promise<InstancesResponse> {
   const now = new Date().toISOString()
   const deep = options.deep !== false
+  const mode = labMode()
   try {
-    const listed = await listInstances()
-    const instances = await Promise.all(listed.map(async (instance) => {
-      try {
-        return await instanceInfo(instance.name) || instance
-      } catch {
-        return instance
-      }
-    }))
     const repo = await loadRepositoryEvidence(repositoryRoot())
+    if (mode === 'vm' && !repo.manifest.readable) throw new Error('evidence unavailable')
+    const instances = mode === 'vm'
+      ? manifestInstances(repo)
+      : await Promise.all((await listInstances()).map(async (instance) => {
+          try {
+            return await instanceInfo(instance.name) || instance
+          } catch {
+            return instance
+          }
+        }))
     const report = reportEvidence(repo.report)
     const built = await Promise.all(instances.map(instance => buildInstance(instance, repo, report, now, deep)))
     const enriched = built.map(item => item.summary)
     return {
+      mode,
       available: true,
       message: null,
       observedAt: now,
       summary: {
         total: enriched.length,
-        running: enriched.filter(item => item.state.toLowerCase() === 'running').length,
+        running: enriched.filter(item => ['running', 'reachable'].includes(item.state.toLowerCase())).length,
         stopped: enriched.filter(item => item.state.toLowerCase() === 'stopped').length,
         deleted: enriched.filter(item => item.deleted).length,
         cpus: enriched.reduce((sum, item) => sum + (item.resources.cpus || 0), 0),
@@ -145,8 +175,11 @@ export async function getControlPlane(options: { deep?: boolean } = {}): Promise
     }
   } catch (error) {
     return {
+      mode,
       available: false,
-      message: publicError(error, 'Multipass data could not be read.'),
+      message: mode === 'vm'
+        ? 'Lab evidence is not available on this VM yet — run make ux-sync on the host.'
+        : publicError(error, 'Multipass data could not be read.'),
       observedAt: now,
       summary: { total: 0, running: 0, stopped: 0, deleted: 0, cpus: 0, memoryBytes: 0 },
       instances: [],

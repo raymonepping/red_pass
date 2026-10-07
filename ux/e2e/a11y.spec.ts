@@ -47,7 +47,15 @@ test('@a11y evidence drawer and action dialog', async ({ page }) => {
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/desktop_drawer.png` })
   expect(await scan(page)).toEqual([])
   await page.keyboard.press('Escape')
-  await page.locator('.instance-card').first().getByRole('button', { name: 'Restart' }).click()
+
+  const restart = page.locator('.instance-card').first().getByRole('button', { name: 'Restart' })
+  if (await page.locator('.env-badge', { hasText: 'VM' }).count()) {
+    // Observe-only VM mode: no lifecycle controls anywhere.
+    await expect(page.locator('.card-actions')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /Restart|Stop|Start|Move to trash|Purge/ })).toHaveCount(0)
+    return
+  }
+  await restart.click()
   await expect(page.getByRole('dialog')).toBeVisible()
   await page.waitForTimeout(400) // let the fade-in finish
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/desktop_dialog.png` })

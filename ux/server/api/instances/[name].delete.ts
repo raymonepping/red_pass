@@ -1,6 +1,7 @@
 import type { ActionRequest, ActionResponse } from '../../../shared/types'
 
 export default defineEventHandler(async (event): Promise<ActionResponse> => {
+  assertHostMode()
   assertLocalOrigin(event)
   const name = getRouterParam(event, 'name') || ''
   requireValidName(name)

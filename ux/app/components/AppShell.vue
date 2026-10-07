@@ -11,6 +11,7 @@ const chain = computed(() => {
   const ok = value.links.filter(link => link.status === 'pass').length
   return { tone: ok === value.links.length && ok > 0 ? 'healthy' : 'degraded', label: `Seal chain ${ok}/${value.links.length}` }
 })
+const mode = computed(() => plane.value?.mode ?? 'host')
 const title = computed(() => route.path.startsWith('/instances/') ? decodeURIComponent(String(route.params.name || 'Instance')) : 'Fleet')
 </script>
 
@@ -33,7 +34,7 @@ const title = computed(() => route.path.startsWith('/instances/') ? decodeURICom
       </nav>
       <div class="sidebar-footer">
         <p class="foot-title">Local control plane</p>
-        <p class="foot-meta">127.0.0.1 · read-mostly</p>
+        <p class="foot-meta">{{ mode === 'vm' ? 'red-ux-1 · observe-only' : '127.0.0.1 · host console' }}</p>
         <p class="foot-meta">Ansible owns the lab; this view observes it.</p>
       </div>
       </div>
@@ -51,7 +52,7 @@ const title = computed(() => route.path.startsWith('/instances/') ? decodeURICom
               <span class="cluster-dot" :class="{ live: chain.tone === 'healthy' }" />
               <span class="cluster-label">{{ chain.label }}</span>
             </span>
-            <span class="env-badge">LOCAL</span>
+            <span class="env-badge" :title="mode === 'vm' ? 'Running inside red-ux-1: observe-only' : 'Running on the host next to Multipass'">{{ mode === 'vm' ? 'VM' : 'HOST' }}</span>
           </div>
         </header>
       </div>

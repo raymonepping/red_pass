@@ -47,7 +47,9 @@
 - name: Add the lab instances to the in-memory inventory
   ansible.builtin.add_host:
     name: "{{ item.name }}"
-    groups: "{{ ['red_pass', 'vault_seal' if item.name == lab_seal_node else 'vault'] }}"
+    groups: >-
+      {{ ['red_pass', lab_service_nodes[item.name].group if item.name in lab_service_nodes
+          else ('vault_seal' if item.name == lab_seal_node else 'vault')] }}
     ansible_host: "{{ item.ipv4[0] }}"
     ansible_user: "{{ lab_ssh_user }}"
     ansible_python_interpreter: "{{ lab_guest_python }}"

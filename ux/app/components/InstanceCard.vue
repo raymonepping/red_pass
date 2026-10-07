@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import type { InstanceSummary, PostureCategory } from '../../shared/types'
+import { ROLE_LABELS, isVaultRole } from '#shared/posture'
 
-const props = defineProps<{ instance: InstanceSummary, busy?: boolean }>()
+const props = defineProps<{ instance: InstanceSummary, busy?: boolean, observeOnly?: boolean }>()
 const emit = defineEmits<{ evidence: [category: PostureCategory], action: [action: string, instance: InstanceSummary] }>()
 const menuOpen = ref(false)
 
 const gb = (bytes: number | null) => bytes === null ? '—' : `${(bytes / 1024 ** 3).toFixed(bytes >= 10 * 1024 ** 3 ? 0 : 1)} GB`
 const state = computed(() => props.instance.state.toLowerCase())
-const roleLabel = computed(() => ({ seal: 'Seal Vault', leader: 'Cluster · leader', follower: 'Cluster' } as const)[props.instance.labRole ?? 'follower'])
+const roleLabel = computed(() => props.instance.labRole ? ROLE_LABELS[props.instance.labRole] : 'Not red_pass')
+const roleClass = computed(() => !props.instance.labRole ? 'foreign' : props.instance.labRole === 'seal' ? 'seal' : isVaultRole(props.instance.labRole) ? '' : 'service')
 function act(action: string) {
   menuOpen.value = false
   emit('action', action, props.instance)
@@ -21,11 +23,11 @@ function act(action: string) {
         <strong>{{ instance.name }}</strong>
         <small>{{ instance.release || 'Operating system unavailable' }}</small>
       </NuxtLink>
-      <span class="state-chip" :class="{ running: state === 'running', deleted: instance.deleted }"><i />{{ instance.state }}</span>
+      <span class="state-chip" :class="{ running: state === 'running' || state === 'reachable', deleted: instance.deleted || state === 'unreachable' }"><i />{{ instance.state }}</span>
     </div>
 
     <div class="card-meta">
-      <span class="role-chip" :class="instance.labRole ? (instance.labRole === 'seal' ? 'seal' : '') : 'foreign'">{{ instance.labRole ? roleLabel : 'Not red_pass' }}</span>
+      <span class="role-chip" :class="roleClass">{{ roleLabel }}</span>
       <span class="mono">{{ instance.ipv4[0] || 'no IPv4' }}</span>
     </div>
 
@@ -39,7 +41,7 @@ function act(action: string) {
       <span><b>{{ gb(instance.resources.diskBytes) }}</b> disk</span>
     </div>
 
-    <div class="card-actions">
+    <div v-if="!observeOnly" class="card-actions">
       <button v-if="state === 'stopped' || state === 'suspended'" class="primary-button" type="button" :disabled="busy" @click="act('start')">Start</button>
       <button v-else-if="state === 'running'" class="secondary-button" type="button" :disabled="busy" @click="act('restart')">Restart</button>
       <button v-else-if="instance.deleted" class="primary-button" type="button" :disabled="busy" @click="act('recover')">Recover</button>

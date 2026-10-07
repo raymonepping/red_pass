@@ -1,6 +1,7 @@
 import type { ActionResponse } from '../../shared/types'
 
 export default defineEventHandler(async (event): Promise<ActionResponse> => {
+  assertHostMode()
   assertLocalOrigin(event)
   const body = await readBody<{ confirmation?: string }>(event)
   try {

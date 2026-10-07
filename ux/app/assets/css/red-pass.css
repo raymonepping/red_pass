@@ -102,6 +102,7 @@
   border: 1px solid color-mix(in srgb, var(--vg-hue-blue) 25%, transparent);
 }
 .role-chip.seal { background: color-mix(in srgb, var(--vg-hue-violet) 10%, transparent); color: var(--vg-hue-violet); border-color: color-mix(in srgb, var(--vg-hue-violet) 28%, transparent); }
+.role-chip.service { background: color-mix(in srgb, var(--vg-hue-cyan) 10%, transparent); color: var(--vg-info); border-color: color-mix(in srgb, var(--vg-hue-cyan) 28%, transparent); }
 .role-chip.foreign { background: color-mix(in srgb, var(--vg-hue-slate) 10%, transparent); color: var(--vg-text-muted); border-color: var(--vg-border-subtle); }
 .state-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--vg-text-muted); white-space: nowrap; }
 .state-chip i { width: 7px; height: 7px; border-radius: 50%; background: var(--vg-text-dim); }

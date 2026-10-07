@@ -8,7 +8,11 @@ repo_root: "{{ (playbook_dir ~ '/..') | realpath }}"
 # handled separately and only ever stopped (see multi_pass_vms below).
 lab_cluster_nodes: [red-vault-1, red-vault-2, red-vault-3]
 lab_seal_node: red-vault-s
-lab_nodes: "{{ lab_cluster_nodes + [lab_seal_node] }}"
+# Service VMs (no Vault): inventory group, manifest role and sizing.
+lab_service_nodes:
+  red-ux-1: { group: ux, role: ux, cpus: 1, memory: 2G, disk: 10G }
+lab_vault_nodes: "{{ lab_cluster_nodes + [lab_seal_node] }}"
+lab_nodes: "{{ lab_vault_nodes + (lab_service_nodes | list) }}"
 vault_leader: red-vault-1
 
 lab_image: "{{ lookup('env', 'RED_PASS_IMAGE') | default('/Users/Shared/rhel-9.8-aarch64-kvm.qcow2', true) }}"
@@ -16,6 +20,10 @@ lab_sizing:
   cluster: { cpus: 2, memory: 4G, disk: 20G }
   seal: { cpus: 1, memory: 2G, disk: 10G }
 lab_launch_timeout: 900
+# Per-launch APFS clones of the image. Must be outside ~/Documents (multipassd
+# runs as root without access to TCC-protected folders) and on the image's
+# volume so `cp -c` is a zero-cost clone.
+lab_image_clone_dir: /Users/Shared/red-pass-images
 
 # Approved by the operator: stop (never delete) multi_pass's VMs before
 # launching red_pass, to free host resources.
@@ -83,3 +91,21 @@ vault_mounts:
 # ── Validation ────────────────────────────────────────────────────────────────
 validation_report: "{{ build_dir }}/validation.json"
 seal_token_min_ttl_seconds: 259200   # 72h
+
+# ── Read-only node probe (used by the UI in host and VM mode) ────────────────
+probe_user: redprobe
+probe_script: /usr/local/libexec/red-pass-probe
+probe_key: "{{ secrets_dir }}/ux/probe_ed25519"
+# Service units and HTTPS health URLs probed on service nodes.
+lab_service_probes:
+  ux: { unit: red-ux, url: "https://127.0.0.1:3443/api/health" }
+
+# ── Control-plane UI in red-ux-1 (VM mode) ───────────────────────────────────
+ux_user: redux
+ux_port: 3443
+ux_home: /opt/red-ux
+ux_conf_dir: /etc/red-ux
+ux_evidence_dir: /var/lib/red-ux/evidence
+ux_bundle_dir: "{{ build_dir }}/ux"
+# Extra browser origins allowed for mutating requests (08 adds the proxy).
+ux_extra_origins: []

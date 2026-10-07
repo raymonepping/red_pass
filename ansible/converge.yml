@@ -9,12 +9,19 @@
 - name: Build the in-memory inventory
   ansible.builtin.import_playbook: discover.yml
 
-- name: RHEL preparation and Vault installation on every node
+- name: RHEL preparation on every node
   hosts: red_pass
   become: true
   gather_facts: true
   roles:
     - { role: rhel_prepare, tags: [rhel] }
+    - { role: lab_probe, tags: [probe] }
+
+- name: Vault installation on the Vault nodes
+  hosts: vault:vault_seal
+  become: true
+  gather_facts: false
+  roles:
     - { role: vault_install, tags: [install] }
     - { role: vault_tls, tags: [tls] }
     - { role: vault_license, tags: [license] }

@@ -22,6 +22,14 @@ make ui-a11y         # axe WCAG 2.1 AA at 1440×900 and 390×844 (UI running)
 The seal Vault is judged against seal-node expectations (Shamir, unsealed,
 Transit key, seal-token TTL); cluster evidence is never attributed to it.
 
+## Modes
+
+- `RED_PASS_MODE=host` (default, `make ui-start`): next to Multipass on the
+  Mac; lifecycle actions available.
+- `RED_PASS_MODE=vm` (red-ux-1, `make ux-deploy`): observe-only; inventory from
+  the pushed ownership manifest, node checks over the forced-command SSH
+  probe, lifecycle routes answer 405.
+
 ## Boundaries
 
 - Server-side only; `execFile` with fixed argv, timeouts and bounded output.

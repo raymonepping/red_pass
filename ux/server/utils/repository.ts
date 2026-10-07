@@ -4,6 +4,7 @@ import type { EvidenceStatus, LabRole } from '../../shared/types'
 import { runCommand } from './command'
 import { cached } from './cache'
 import { INSTANCE_NAME_PATTERN } from './multipass'
+import { labMode } from './mode'
 
 /*
  * Read-only adapters over the non-secret evidence Ansible writes to .build/.
@@ -13,7 +14,7 @@ import { INSTANCE_NAME_PATTERN } from './multipass'
 
 export interface OwnershipManifest {
   readable: boolean
-  nodes: Record<string, { role: LabRole, ipv4: string | null, firstSeen: string | null }>
+  nodes: Record<string, { role: LabRole, ipv4: string | null, firstSeen: string | null, cpus: number | null, memory: string | null }>
 }
 
 export interface ConvergenceStamp {
@@ -38,7 +39,7 @@ const record = (value: unknown): UnknownRecord => value && typeof value === 'obj
 const text = (value: unknown, max = 200): string | null => typeof value === 'string' ? value.slice(0, max) : null
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/
 const isoOrNull = (value: unknown): string | null => typeof value === 'string' && ISO.test(value) ? value : null
-const ROLES: LabRole[] = ['seal', 'leader', 'follower']
+const ROLES: LabRole[] = ['seal', 'leader', 'follower', 'ux', 'identity', 'proxy']
 const STATUSES: EvidenceStatus[] = ['pass', 'warn', 'fail', 'unknown']
 
 async function readJson(path: string): Promise<unknown | null> {
@@ -58,7 +59,13 @@ export function parseOwnership(raw: unknown): OwnershipManifest {
     if (!INSTANCE_NAME_PATTERN.test(name) || node.launched_by_ansible !== true) continue
     const role = ROLES.find(item => item === node.role)
     if (!role) continue
-    nodes[name] = { role, ipv4: text(node.ipv4, 45), firstSeen: isoOrNull(node.first_seen) }
+    nodes[name] = {
+      role,
+      ipv4: text(node.ipv4, 45),
+      firstSeen: isoOrNull(node.first_seen),
+      cpus: typeof node.cpus === 'number' && Number.isInteger(node.cpus) ? node.cpus : null,
+      memory: text(node.memory, 16),
+    }
   }
   return { readable: true, nodes }
 }
@@ -115,17 +122,27 @@ export interface RepositoryEvidence {
   currentDigest: string | null
 }
 
+const DIGEST = /^[0-9a-f]{64}$/
+
+/**
+ * Host mode reads the repository's .build/ and runs the digest script; VM
+ * mode reads the copies Ansible pushed to RED_PASS_EVIDENCE_DIR, including the
+ * digest computed on the controller at sync time.
+ */
 export async function loadRepositoryEvidence(repositoryRoot: string): Promise<RepositoryEvidence> {
   return cached('repository-evidence', 5_000, async () => {
-    const build = resolve(repositoryRoot, '.build')
+    const vm = labMode() === 'vm'
+    const dir = vm ? (process.env.RED_PASS_EVIDENCE_DIR || '/var/lib/red-ux/evidence') : resolve(repositoryRoot, '.build')
+    const digest = vm
+      ? readFile(resolve(dir, 'automation-digest.txt'), 'utf8').then(value => DIGEST.test(value.trim()) ? value.trim() : null).catch(() => null)
+      : runCommand(resolve(repositoryRoot, 'scripts/automation-digest.sh'), [], { cwd: repositoryRoot, timeoutMs: 10_000 })
+          .then(({ stdout }) => DIGEST.test(stdout.trim()) ? stdout.trim() : null)
+          .catch(() => null)
     const [manifest, stamp, report, currentDigest] = await Promise.all([
-      readJson(resolve(build, 'ownership.json')).then(parseOwnership),
-      readJson(resolve(build, 'convergence.json')).then(parseConvergence),
-      readJson(resolve(build, 'validation.json')).then(parseValidation),
-      // Same algorithm the lab used to stamp the run: one script, two callers.
-      runCommand(resolve(repositoryRoot, 'scripts/automation-digest.sh'), [], { cwd: repositoryRoot, timeoutMs: 10_000 })
-        .then(({ stdout }) => /^[0-9a-f]{64}$/.test(stdout.trim()) ? stdout.trim() : null)
-        .catch(() => null),
+      readJson(resolve(dir, 'ownership.json')).then(parseOwnership),
+      readJson(resolve(dir, 'convergence.json')).then(parseConvergence),
+      readJson(resolve(dir, 'validation.json')).then(parseValidation),
+      digest,
     ])
     return { manifest, stamp, report, currentDigest }
   })

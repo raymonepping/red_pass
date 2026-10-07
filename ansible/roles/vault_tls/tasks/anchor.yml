@@ -1,0 +1,16 @@
+---
+# Trust the lab CA system-wide on the node (curl health probes, service
+# clients). Reused by service nodes.
+
+- name: Trust the lab CA system-wide (for curl health probes)
+  ansible.builtin.copy:
+    src: "{{ tls_dir }}/ca.crt"
+    dest: /etc/pki/ca-trust/source/anchors/red-pass-lab-ca.crt
+    mode: "0644"
+  register: tls_anchor
+
+- name: Refresh the system trust store
+  ansible.builtin.command:
+    argv: [update-ca-trust, extract]
+  changed_when: true
+  when: tls_anchor is changed

@@ -79,6 +79,9 @@ is the system's `vault-glass.css`; red_pass components live in
 | Seal chain n/3 | topbar `cluster-pill healthy/degraded/critical` | live `sys/seal-status` of all four nodes |
 | Seal Vault sealed | `chain-node is-fail` + hint "run make unseal" | live probe |
 | Validation report stale | `tone-warning` row "Validation report age" | `.build/validation.json` older than 24 h |
+| VM mode | topbar `env-badge` **VM**, hero "Observe-only" line, no lifecycle controls | `RED_PASS_MODE=vm` in red-ux-1 |
+| Reachable / Unreachable | `state-chip` (VM mode replaces Multipass states) | forced-command probe answered or not |
+| Service healthy / Down | fourth `posture-pill` with the activity glyph | service unit active + HTTPS 200 |
 
 ## Components
 
