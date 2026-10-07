@@ -182,6 +182,63 @@
           ansible.builtin.include_role:
             name: identity_verify
 
+    - name: Front-door checks (when red-proxy-1 is part of the lab)
+      when: front_door | bool
+      block:
+        - name: Read through the front door with verified TLS
+          ansible.builtin.uri:
+            url: "{{ item.url }}"
+            ca_path: "{{ vault_ca_cert }}"
+            status_code: [200, 429, 503]
+            return_content: true
+          check_mode: false
+          failed_when: false
+          loop:
+            - { id: fd-vault, label: "Vault (active node) via front door", url: "{{ front_door_url }}:{{ proxy_ports.vault }}/v1/sys/health" }
+            - { id: fd-reads, label: "Vault reads via front door", url: "{{ front_door_url }}:{{ proxy_ports.vault_reads }}/v1/sys/health?standbyok=true&perfstandbyok=true" }
+            - { id: fd-node, label: "Any node by path (/node/red-vault-2)", url: "{{ front_door_url }}:{{ proxy_ports.nodes }}/node/red-vault-2/v1/sys/health?standbyok=true&perfstandbyok=true" }
+            - { id: fd-seal, label: "Seal Vault via front door", url: "{{ front_door_url }}:{{ proxy_ports.seal }}/v1/sys/health" }
+            - { id: fd-ui, label: "Console via front door", url: "{{ front_door_url }}:{{ proxy_ports.ui }}/api/health" }
+            - { id: fd-kc, label: "Keycloak issuer via front door", url: "{{ keycloak_issuer }}/.well-known/openid-configuration" }
+          loop_control:
+            label: "{{ item.id }}"
+          register: fd_reads
+
+        - name: Backends must refuse direct access from here
+          ansible.builtin.wait_for:
+            host: "{{ item.host }}"
+            port: "{{ item.port }}"
+            timeout: 3
+          check_mode: false
+          failed_when: false
+          loop:
+            - { id: fd-direct-ui, label: "Console refuses direct access", host: "{{ hostvars['red-ux-1'].ansible_host | default('') }}", port: "{{ ux_port }}" }
+            - { id: fd-direct-kc, label: "Keycloak refuses direct access", host: "{{ hostvars[identity_node].ansible_host | default('') }}", port: "{{ keycloak_port }}" }
+          loop_control:
+            label: "{{ item.id }}"
+          register: fd_direct
+
+        - name: Front-door rows
+          ansible.builtin.set_fact:
+            front_door_report: >-
+              {{ front_door_report | default([]) + [{'id': item.item.id, 'label': item.item.label,
+                 'status': 'pass' if item.status | default(0) == 200
+                           and (item.item.id != 'fd-kc' or (item.json.issuer | default('')) == keycloak_issuer) else 'fail',
+                 'detail': 'HTTP ' ~ (item.status | default('no answer'))}] }}
+          loop: "{{ fd_reads.results }}"
+          loop_control:
+            label: "{{ item.item.id }}"
+
+        - name: Direct-access rows
+          ansible.builtin.set_fact:
+            front_door_report: >-
+              {{ front_door_report + [{'id': item.item.id, 'label': item.item.label,
+                 'status': 'pass' if 'Timeout' in (item.msg | default('')) else 'fail',
+                 'detail': 'refused or filtered' if 'Timeout' in (item.msg | default('')) else 'reachable without the proxy'}] }}
+          loop: "{{ fd_direct.results }}"
+          loop_control:
+            label: "{{ item.item.id }}"
+
     - name: Build the evidence report
       ansible.builtin.set_fact:
         validation:
@@ -205,6 +262,7 @@
               status: "{{ 'pass' if ev_platform_missing | default(vault_namespaces | difference(ev_namespaces)) | length == 0 else 'fail' }}"
               detail: "{{ 'all present' if ev_platform_missing | default(vault_namespaces | difference(ev_namespaces)) | length == 0 else 'missing: ' ~ (ev_platform_missing | default(vault_namespaces | difference(ev_namespaces)) | join(', ')) }}"
           identity: "{{ identity_report | default([]) }}"
+          front_door: "{{ front_door_report | default([]) }}"
           seal_chain:
             - id: seal_key
               label: Transit key autounseal present
@@ -230,7 +288,8 @@
               | selectattr('status', 'equalto', 'fail') | map(attribute='label') | list)
              + (validation.cluster | selectattr('status', 'equalto', 'fail') | map(attribute='label') | list)
              + (validation.seal_chain | selectattr('status', 'equalto', 'fail') | map(attribute='label') | list)
-             + (validation.identity | selectattr('status', 'equalto', 'fail') | map(attribute='label') | list) }}
+             + (validation.identity | selectattr('status', 'equalto', 'fail') | map(attribute='label') | list)
+             + (validation.front_door | selectattr('status', 'equalto', 'fail') | map(attribute='label') | list) }}
 
     - name: Require every check to pass
       ansible.builtin.assert:

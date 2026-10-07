@@ -12,6 +12,8 @@ lab_seal_node: red-vault-s
 lab_service_nodes:
   red-ux-1: { group: ux, role: ux, cpus: 1, memory: 2G, disk: 10G }
   red-identity-1: { group: identity, role: identity, cpus: 2, memory: 4G, disk: 15G }
+  # dnf on full RHEL repo metadata needs ~2G: 1G gets OOM-killed.
+  red-proxy-1: { group: proxy, role: proxy, cpus: 1, memory: 2G, disk: 10G }
 lab_vault_nodes: "{{ lab_cluster_nodes + [lab_seal_node] }}"
 lab_nodes: "{{ lab_vault_nodes + (lab_service_nodes | list) }}"
 vault_leader: red-vault-1
@@ -101,6 +103,7 @@ probe_key: "{{ secrets_dir }}/ux/probe_ed25519"
 lab_service_probes:
   ux: { units: [red-ux], url: "https://127.0.0.1:3443/api/health" }
   identity: { units: [keycloak, openldap], url: "https://127.0.0.1:9000/health/ready" }
+  proxy: { units: [haproxy], url: "https://127.0.0.1:8200/v1/sys/health" }
 
 # ── Control-plane UI in red-ux-1 (VM mode) ───────────────────────────────────
 ux_user: redux
@@ -125,7 +128,9 @@ keycloak_port: 8443
 keycloak_mgmt_port: 9000
 ldaps_port: 636
 # The issuer must be fixed: Vault checks it. 08 moves it to the front door.
-keycloak_public_url: "https://{{ hostvars[identity_node].ansible_host | default('red-identity-1') }}:{{ keycloak_port }}"
+keycloak_public_url: >-
+  {{ front_door_url ~ ':' ~ keycloak_port if front_door | bool
+     else 'https://' ~ (hostvars[identity_node].ansible_host | default('red-identity-1')) ~ ':' ~ keycloak_port }}
 keycloak_issuer: "{{ keycloak_public_url }}/realms/{{ identity_realm }}"
 ldaps_url: "ldaps://{{ hostvars[identity_node].ansible_host | default('red-identity-1') }}:{{ ldaps_port }}"
 # Directory content. No passwords here: they live in Vault KV.
@@ -142,12 +147,32 @@ identity_kv_mount: secret
 identity_kv_path: red-pass/identity
 identity_secret_keys: [ldap_admin_password, ldap_readonly_password, keycloak_admin_password, vault_client_secret, ui_client_secret, ui_session_password]
 # Browser origins of the UI (Keycloak redirect URIs, allowed Origins).
-ux_public_origins: "{{ ['https://' ~ (hostvars['red-ux-1'].ansible_host | default('red-ux-1')) ~ ':' ~ ux_port] + ux_extra_origins }}"
+ux_public_origins: >-
+  {{ ['https://' ~ (hostvars['red-ux-1'].ansible_host | default('red-ux-1')) ~ ':' ~ ux_port]
+     + ([front_door_url] if front_door | bool else []) + ux_extra_origins }}
 # Vault OIDC callback URIs: every cluster node (08 adds the front door).
 vault_oidc_redirect_uris: >-
   {{ (groups['vault'] | default([]) | map('extract', hostvars, 'ansible_host')
       | map('regex_replace', '^(.*)$', 'https://\1:8200/ui/vault/auth/oidc/oidc/callback') | list)
      + vault_oidc_extra_redirect_uris + ['http://localhost:8250/oidc/callback'] }}
-vault_oidc_extra_redirect_uris: []
+vault_oidc_extra_redirect_uris: "{{ [front_door_url ~ ':8200/ui/vault/auth/oidc/oidc/callback'] if front_door | bool else [] }}"
 # The loopback host console (make ui-start-auth) may also sign people in.
 ux_host_origin: "http://127.0.0.1:3310"
+
+# ── Front door: HAProxy on red-proxy-1 (prompt 08) ───────────────────────────
+proxy_node: red-proxy-1
+# True once red-proxy-1 is part of the discovered lab; everything public
+# (Keycloak issuer, Vault OIDC callbacks, UI origins) then points at it.
+front_door: "{{ groups['proxy'] | default([]) | length > 0 }}"
+front_door_url: "https://{{ hostvars[proxy_node].ansible_host | default('red-proxy-1') }}"
+proxy_names: [vault.red-pass.lab, ui.red-pass.lab, id.red-pass.lab]
+proxy_ports:
+  vault: 8200
+  vault_reads: 8202
+  ui: 443
+  keycloak: 8443
+  seal: 8210
+  nodes: 9000
+  stats: 8404
+proxy_dir: /etc/haproxy/red-pass
+proxy_kv_path: red-pass/proxy

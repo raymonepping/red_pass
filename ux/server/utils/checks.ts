@@ -32,6 +32,19 @@ export interface NodeChecks {
   facts: VaultFacts
   /** Root filesystem size from the guest; Multipass reports only the EFI partition for these RHEL images. */
   rootBytes: number | null
+  /** Proxy only: backend/server/status triples from HAProxy stats. */
+  frontDoor?: FrontDoorServer[]
+}
+
+export interface FrontDoorServer { backend: string, server: string, status: string }
+
+/** Parse `backend:server:STATUS;...` from the proxy probe; allow-listed shapes only. */
+export function parseFrontDoor(value: string | undefined): FrontDoorServer[] {
+  return (value || '').split(';').flatMap((item) => {
+    const [backend, server, status] = item.split(':')
+    if (!backend || !server || !/^[a-z0-9_]{1,40}$/.test(backend) || !/^[a-z0-9-]{1,63}$/.test(server)) return []
+    return [{ backend, server, status: /^(UP|DOWN|MAINT|NOLB|DRAIN|no check)/.test(status || '') ? (status || '').split(' ')[0]! : 'UNKNOWN' }]
+  })
 }
 
 /** Parse `df -B1 --output=size,pcent /` ("20178747392 9%") into bytes and percent used. */
@@ -147,7 +160,9 @@ export async function nodeChecks(name: string, address: string | undefined, role
         ? check('root-fs', 'Root filesystem', root.usedPercent < 85 ? 'pass' : 'warn', 'rhel', `${(root.bytes / 1024 ** 3).toFixed(1)} GB, ${root.usedPercent}% used`)
         : check('root-fs', 'Root filesystem', 'unknown', 'rhel', 'Size unavailable'))
       const base = { reachable: true, release: values.release || null, rhel, rootBytes: root?.bytes ?? null }
-      if (!isVaultRole(role)) return { ...base, vault: serviceEvidence(values), facts: NO_FACTS }
+      if (!isVaultRole(role)) {
+        return { ...base, vault: serviceEvidence(values), facts: NO_FACTS, ...(role === 'proxy' ? { frontDoor: parseFrontDoor(values.front_door) } : {}) }
+      }
       const vault = vaultEvidence(role, values)
       return { ...base, vault: vault.checks, facts: vault.facts }
     } catch {
@@ -172,10 +187,10 @@ function fromReport(items: ReportCheck[], scope: EvidenceCheck['scope'], at: str
  * never runs Ansible; it shows the report with its age, and a missing or
  * stale report is never treated as passing.
  */
-export function reportEvidence(report: ValidationReport, now = Date.now()): { cluster: EvidenceCheck[], sealChain: EvidenceCheck[], identity: EvidenceCheck[] } {
+export function reportEvidence(report: ValidationReport, now = Date.now()): { cluster: EvidenceCheck[], sealChain: EvidenceCheck[], identity: EvidenceCheck[], frontDoor: EvidenceCheck[] } {
   if (!report.readable || !report.generatedAt) {
     const missing = check('report-missing', 'Validation report', 'unknown', 'ansible', 'No .build/validation.json yet — run make validate.', 'cluster')
-    return { cluster: [missing], sealChain: [{ ...missing, scope: 'seal-chain' }], identity: [{ ...missing, scope: 'identity' }] }
+    return { cluster: [missing], sealChain: [{ ...missing, scope: 'seal-chain' }], identity: [{ ...missing, scope: 'identity' }], frontDoor: [{ ...missing, scope: 'front-door' }] }
   }
   const at = report.generatedAt
   const ageMs = now - Date.parse(at)
@@ -186,5 +201,6 @@ export function reportEvidence(report: ValidationReport, now = Date.now()): { cl
     cluster: [freshness, ...fromReport(report.cluster, 'cluster', at)],
     sealChain: [{ ...freshness, id: 'report-age-seal', scope: 'seal-chain' }, ...fromReport(report.sealChain, 'seal-chain', at)],
     identity: report.identity.length ? [{ ...freshness, id: 'report-age-identity', scope: 'identity' }, ...fromReport(report.identity, 'identity', at)] : [],
+    frontDoor: report.frontDoor.length ? [{ ...freshness, id: 'report-age-front-door', scope: 'front-door' }, ...fromReport(report.frontDoor, 'front-door', at)] : [],
   }
 }

@@ -105,6 +105,30 @@ Service VMs get a fourth indicator **Service** (their own unit + HTTPS
 health) instead of Vault; cluster and seal-chain evidence are never
 attributed to them.
 
+## Front door
+
+```mermaid
+flowchart LR
+  you([Browser / CLI]) -- "TLS · lab CA" --> px[red-proxy-1 · HAProxy]
+  px -- ":8200 active only" --> v[red-vault-1..3]
+  px -- ":8202 any unsealed" --> v
+  px -- ":9000 /node/name" --> v
+  px -- ":8210" --> s[red-vault-s]
+  px -- ":443" --> ux[red-ux-1 console]
+  px -- ":8443" --> kc[red-identity-1 Keycloak]
+```
+
+- Every backend hop is TLS with `verify required` + `verifyhost <node>`.
+- `:8200` checks bare `GET /v1/sys/health`: only the active node answers 200
+  (Enterprise performance standbys answer 473), so writes and the Vault UI
+  always hit the leader and follow it on failover.
+- Keycloak's issuer, Vault's OIDC callbacks and the console's origins switch
+  to the proxy URL as soon as `red-proxy-1` is in the inventory
+  (`front_door` in `group_vars`), in the same `make lab`.
+- The console (3443) and Keycloak (8443) accept only the proxy's address
+  (firewalld rich rules). OpenLDAP and Keycloak run with **host networking**:
+  Podman's published ports are DNAT'd by netavark and would bypass firewalld.
+
 ## Identity
 
 ```mermaid

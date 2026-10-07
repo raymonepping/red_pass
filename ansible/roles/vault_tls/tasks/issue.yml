@@ -75,7 +75,9 @@
     tls_reissue: >-
       {{ tls_node_cert.subject_alt_name is not defined
          or tls_node_cert.expired | default(true)
-         or ('IP:' ~ ansible_host) not in tls_node_cert.subject_alt_name }}
+         or ('IP:' ~ ansible_host) not in tls_node_cert.subject_alt_name
+         or (tls_extra_dns_names | default([]) | map('regex_replace', '^', 'DNS:') | list
+             | difference(tls_node_cert.subject_alt_name) | length > 0) }}
 
 - name: Issue the node certificate
   when: tls_reissue | bool
@@ -92,11 +94,9 @@
       community.crypto.openssl_csr_pipe:
         privatekey_path: "{{ tls_dir }}/{{ inventory_hostname }}.key"
         common_name: "{{ inventory_hostname }}"
-        subject_alt_name:
-          - "DNS:{{ inventory_hostname }}"
-          - DNS:localhost
-          - "IP:{{ ansible_host }}"
-          - IP:127.0.0.1
+        subject_alt_name: >-
+          {{ ['DNS:' ~ inventory_hostname, 'DNS:localhost', 'IP:' ~ ansible_host, 'IP:127.0.0.1']
+             + (tls_extra_dns_names | default([]) | map('regex_replace', '^', 'DNS:') | list) }}
         extended_key_usage: [serverAuth, clientAuth]
       register: tls_node_csr
 

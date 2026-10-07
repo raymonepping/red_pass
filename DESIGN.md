@@ -107,6 +107,24 @@ is the system's `vault-glass.css`; red_pass components live in
 - **ActionDialog** — role-aware: seal-Vault restart warns about `make unseal`;
   cluster restart explains auto-unseal; deleting an Ansible-provisioned VM
   requires an ownership-drift acknowledgement.
+- **VmListPane** — folded glass pane (`vg-glass`) wrapping the toolbar and
+  instance card grid. Always shows a header button (`aria-expanded` /
+  `aria-controls`) with the title "Virtual machines" and a compact summary line
+  (total, running/reachable, status, foreign-VM count). Folded by default on
+  every load; the open/closed choice is remembered per viewer in `localStorage`
+  under the key `red-pass:vm-pane` (try/catch, never required to render). When
+  any indicator is critical or amber, or any lab instance is unreachable in VM
+  mode, the header summary turns amber and the pane border is tinted amber — a
+  folded pane never silently hides a problem.
+- **RedPassFooter** — in-flow (never fixed) signature footer, present on every
+  page including `/signin`. Contains: a thin aluminium rule with a blue glint at
+  its centre; a localStorage-remembered folded **"Indicator key"** (`red-pass:footer-key`)
+  naming every state colour once (Secured/green, Attention/amber, Failed/red,
+  Unknown/dim, Seal Vault/violet, service VM/cyan); the tagline *"Ansible builds
+  it. Vault seals it. People prove it."*; `© <year> Raymon Epping` with the
+  clearing sweep on hover/focus (`.sig-name`, reduced-motion safe); the words
+  **Provision · Converge · Seal · Prove**; and social links (GitHub, X,
+  LinkedIn, Medium) with `aria-label`s and `rel="noopener noreferrer"`.
 
 ## Responsive behaviour
 

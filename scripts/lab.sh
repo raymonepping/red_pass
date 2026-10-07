@@ -19,15 +19,16 @@ phase() { printf '\n\033[1;7m %s \033[0m %s\n\n' "$1" "$2" >&2; }
 
 # People (OpenLDAP + Keycloak + Vault auth) come in before validation, which
 # then proves them.
-if grep -q '^  red-identity-1:' "${ROOT_DIR}/ansible/group_vars/all.yml"; then
-  PHASES=(provision converge bootstrap platform identity validate)
-fi
-
-# The UI VM, when part of the lab, is deployed and synced last.
-if jq -e '.nodes["red-ux-1"]' "${BUILD_DIR}/ownership.json" >/dev/null 2>&1 ||
-  grep -q '^  red-ux-1:' "${ROOT_DIR}/ansible/group_vars/all.yml"; then
-  PHASES+=(ux)
-fi
+# The front door comes up before identity, because Keycloak's issuer, Vault's
+# OIDC callbacks and the UI origins all point at it.
+has_node() { grep -q "^  $1:" "${ROOT_DIR}/ansible/group_vars/all.yml"; }
+PHASES=(provision converge bootstrap platform)
+has_node red-proxy-1 && PHASES+=(proxy)
+has_node red-identity-1 && PHASES+=(identity)
+# The console deploys before validation (so its firewall is final when the
+# front-door checks run); it gets the final evidence after the stamp.
+has_node red-ux-1 && PHASES+=(ux)
+PHASES+=(validate)
 
 for index in "${!PHASES[@]}"; do
   name="${PHASES[$index]}"

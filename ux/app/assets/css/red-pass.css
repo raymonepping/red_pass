@@ -260,3 +260,21 @@
   .lifecycle { grid-template-columns: 1fr; }
   .hero-head h1, .detail-identity h1 { font-size: 22px; }
 }
+
+/* ── Front door ─────────────────────────────────────────────────────────── */
+.door-list { display: grid; gap: 8px; }
+.door-row {
+  display: grid; grid-template-columns: minmax(240px, 1fr) 2fr; gap: 12px; align-items: center;
+  padding: 10px 12px; border-radius: 10px; background: var(--vg-well); border: 1px solid var(--vg-border-subtle);
+}
+.door-name { display: flex; flex-direction: column; min-width: 0; }
+.door-name strong { font-size: 13px; font-weight: 650; color: var(--vg-text-primary); }
+.door-name a { font-size: 11.5px; overflow-wrap: anywhere; }
+.door-servers { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.door-chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px; border-radius: 100px; font-family: var(--font-mono); font-size: 11.5px; font-weight: 600; }
+.door-chip i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.door-chip.state-unknown { color: var(--vg-text-dim); }
+@media (max-width: 760px) {
+  .door-row { grid-template-columns: 1fr; }
+  .door-servers { justify-content: flex-start; }
+}

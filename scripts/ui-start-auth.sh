@@ -11,6 +11,7 @@ require_cmd jq
 
 leader="$(jq -r '.nodes | to_entries[] | select(.value.role == "leader") | .value.ipv4' "${BUILD_DIR}/ownership.json")"
 identity="$(jq -r '.nodes | to_entries[] | select(.value.role == "identity") | .value.ipv4' "${BUILD_DIR}/ownership.json")"
+proxy="$(jq -r '.nodes | to_entries[] | select(.value.role == "proxy") | .value.ipv4' "${BUILD_DIR}/ownership.json")"
 [[ -n "${identity}" ]] || die "No identity node in the lab; use make ui-start."
 umask 077
 mkdir -p "${SECRETS_DIR}/ux"
@@ -23,7 +24,8 @@ unset secrets
 cd "${ROOT_DIR}/ux"
 export PORT=3310 RED_PASS_REPOSITORY_ROOT=..
 export RED_PASS_ALLOWED_ORIGINS="http://127.0.0.1:3310"
-export RED_PASS_OIDC_ISSUER="https://${identity}:8443/realms/red-pass"
+# Keycloak's issuer is the front door once it exists.
+export RED_PASS_OIDC_ISSUER="https://${proxy:-${identity}}:8443/realms/red-pass"
 export RED_PASS_OIDC_CLIENT_SECRET_FILE="${SECRETS_DIR}/ux/oidc-client-secret"
 export RED_PASS_SESSION_SECRET_FILE="${SECRETS_DIR}/ux/session-secret"
 export NODE_EXTRA_CA_CERTS="${SECRETS_DIR}/tls/ca.crt"

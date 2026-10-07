@@ -1,5 +1,5 @@
 import { resolve } from 'node:path'
-import type { EvidenceCheck, InstanceSummary, InstancesResponse, LabRole, PostureCategory, SealChain } from '../../shared/types'
+import type { EvidenceCheck, FrontDoor, FrontDoorEntry, InstanceSummary, InstancesResponse, LabRole, PostureCategory, SealChain } from '../../shared/types'
 import { aggregateStatus, category, isVaultRole } from '../../shared/posture'
 import type { MultipassInstance } from './multipass'
 import { bytes, instanceInfo, listInstances } from './multipass'
@@ -79,7 +79,9 @@ async function buildInstance(instance: MultipassInstance, repo: RepositoryEviden
   // seal-chain evidence; service VMs are judged on their own service.
   const scoped = labRole === 'seal'
     ? report.sealChain
-    : vaultNode ? [...report.cluster, ...report.sealChain] : labRole === 'identity' ? report.identity : []
+    : vaultNode
+      ? [...report.cluster, ...report.sealChain]
+      : labRole === 'identity' ? report.identity : labRole === 'proxy' ? report.frontDoor : []
   const fourthEvidence = checks ? [...checks.vault, ...scoped] : []
   const labels = vaultNode
     ? { pass: 'Secured', warn: 'Attention required', fail: 'Not ready', unknown: 'Unknown' }
@@ -134,6 +136,34 @@ export function sealChainFrom(built: BuiltInstance[]): SealChain | null {
   return { sealNode: seal.summary.name, sealVault, links }
 }
 
+/** Public entry points, in the order an operator reads them. */
+const FRONT_DOOR: { match: (backend: string) => boolean, key: string, label: string, port: number }[] = [
+  { match: b => b === 'vault_active', key: 'vault', label: 'Vault — UI, API, writes (active node)', port: 8200 },
+  { match: b => b === 'vault_any', key: 'vault-reads', label: 'Vault — reads (any unsealed node)', port: 8202 },
+  { match: b => b === 'ui', key: 'ui', label: 'red_pass console', port: 443 },
+  { match: b => b === 'keycloak', key: 'keycloak', label: 'Keycloak (realm red-pass)', port: 8443 },
+  { match: b => b === 'seal_vault', key: 'seal', label: 'Seal Vault (operator)', port: 8210 },
+  { match: b => b.startsWith('node_') && b !== 'node_unknown', key: 'nodes', label: 'Any node by path (/node/<name>/…)', port: 9000 },
+]
+
+/** Front door from the proxy's live probe; null when there is no proxy. */
+export function frontDoorFrom(built: BuiltInstance[]): FrontDoor | null {
+  const proxy = built.find(item => item.summary.labRole === 'proxy')
+  if (!proxy) return null
+  const host = proxy.summary.ipv4[0] || proxy.summary.name
+  const servers = proxy.checks?.frontDoor ?? []
+  const entries: FrontDoorEntry[] = FRONT_DOOR.map(entry => ({
+    key: entry.key,
+    label: entry.label,
+    url: `https://${host}${entry.port === 443 ? '' : `:${entry.port}`}`,
+    servers: servers.filter(item => entry.match(item.backend)).map(item => ({
+      name: item.server,
+      status: (['UP', 'DOWN', 'MAINT'].includes(item.status) ? item.status : 'UNKNOWN') as FrontDoorEntry['servers'][number]['status'],
+    })),
+  })).filter(entry => entry.servers.length > 0 || !proxy.checks)
+  return { node: proxy.summary.name, entries }
+}
+
 export function repositoryRoot(): string {
   const configured = useRuntimeConfig().repositoryRoot
   return resolve(process.cwd(), typeof configured === 'string' ? configured : '..')
@@ -174,6 +204,7 @@ export async function getControlPlane(options: { deep?: boolean } = {}): Promise
       instances: enriched,
       cluster: deep ? report.cluster : [],
       sealChain: deep ? sealChainFrom(built) : null,
+      frontDoor: deep ? frontDoorFrom(built) : null,
     }
   } catch (error) {
     return {
@@ -187,6 +218,7 @@ export async function getControlPlane(options: { deep?: boolean } = {}): Promise
       instances: [],
       cluster: [],
       sealChain: null,
+      frontDoor: null,
     }
   }
 }

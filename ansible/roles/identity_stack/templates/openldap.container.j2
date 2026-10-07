@@ -5,11 +5,10 @@ Description=red_pass OpenLDAP directory ({{ identity_base_dn }})
 [Container]
 Image={{ openldap_image }}
 ContainerName=openldap
-HostName=openldap
-Network=red-identity.network
-# ldaps for clients (Vault); plain 389 only on loopback for Ansible's ldap modules.
-PublishPort={{ ldaps_port }}:636
-PublishPort=127.0.0.1:389:389
+# Host networking: published ports are DNAT'd by netavark and bypass
+# firewalld, so the containers share the host's network and firewalld is the
+# real gate (636 only from the Vault cluster; 389 not opened at all).
+Network=host
 Volume=red-ldap-data:/var/lib/ldap:Z
 Volume=red-ldap-config:/etc/ldap/slapd.d:Z
 Volume={{ identity_conf_dir }}/tls/ldap:/container/service/slapd/assets/certs:Z

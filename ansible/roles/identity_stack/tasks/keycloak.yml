@@ -32,7 +32,7 @@
       priority: 0
       vendor: other
       editMode: READ_ONLY
-      connectionUrl: ldap://openldap:389
+      connectionUrl: ldap://127.0.0.1:389
       bindDn: "cn=readonly,{{ identity_base_dn }}"
       bindCredential: "{{ idstack.ldap_readonly_password }}"
       usersDn: "ou=people,{{ identity_base_dn }}"

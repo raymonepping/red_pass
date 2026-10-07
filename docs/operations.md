@@ -34,6 +34,18 @@ freshly issued OIDC tokens look expired (`JWTExpired`). `rhel_prepare` sets
 node's clock offset is RHEL evidence in the console. If sign-in fails with an
 expiry error: `make converge TAGS=rhel`.
 
+## Front door operations
+
+- Names instead of the IP (optional, never done by automation) — add to the
+  Mac's `/etc/hosts`: `<red-proxy-1 ip> vault.red-pass.lab ui.red-pass.lab id.red-pass.lab`.
+  The issuer stays the IP URL, so OIDC keeps working either way.
+- `make proxy-failover-test` — explicit, changes live state.
+- Stats: `https://<proxy>:8404/stats`, user `stats`, password from Vault KV
+  `secret/red-pass/proxy` (stored hashed in `haproxy.cfg`).
+- Sizing: the proxy (and any small RHEL VM) needs 2 GB — `dnf` on the full
+  RHEL repository metadata is OOM-killed at 1 GB. Resize an existing VM with
+  `multipass stop <vm> && multipass set local.<vm>.memory=2G && multipass start <vm>`.
+
 ## Identity operations
 
 | Need | Do |

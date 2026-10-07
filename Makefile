@@ -105,3 +105,10 @@ identity-show-user: ## Print one lab login password (PERSON=raymon) — lab only
 .PHONY: ui-start-auth
 ui-start-auth: ui-build ## Host console with Keycloak sign-in and role gating (needs the identity node)
 	./scripts/ui-start-auth.sh
+
+.PHONY: proxy proxy-failover-test
+proxy: ## HAProxy front door on red-proxy-1
+	$(RUN) proxy
+
+proxy-failover-test: ## Stop Vault on the active node; the front door must follow the new leader
+	$(RUN) proxy-failover-test

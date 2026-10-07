@@ -14,9 +14,10 @@ make lab
   2 converge    RHEL (RHSM, firewalld, SELinux, swap), Vault binary, TLS, licence, config
   3 bootstrap   seal Vault → transit token → cluster init → auto-unseal → platform token
   4 platform    Enterprise namespaces + KV v2 / Transit / PKI mounts via the Vault API
-  5 identity    OpenLDAP + Keycloak → Vault auth/oidc, auth/jwt, auth/ldap + external groups
-  6 validate    read-only readiness contract (incl. every person's login) → .build/validation.json
-  7 ux          deploy the console to red-ux-1 and sync its evidence
+  5 proxy       HAProxy front door on red-proxy-1 (TLS in, verified TLS out)
+  6 identity    OpenLDAP + Keycloak → Vault auth/oidc, auth/jwt, auth/ldap + external groups
+  7 ux          deploy the console to red-ux-1
+  8 validate    read-only readiness contract (people, front door) → .build/validation.json
 ```
 
 ## Topology
@@ -29,6 +30,7 @@ make lab
 | `red-vault-3` | cluster | 2 CPU · 4G · 20G | transit → `red-vault-s` |
 | `red-ux-1` | control-plane UI (observe-only VM mode) | 1 CPU · 2G · 10G | — |
 | `red-identity-1` | OpenLDAP + Keycloak (Podman Quadlet) | 2 CPU · 4G · 15G | — |
+| `red-proxy-1` | HAProxy front door | 1 CPU · 2G · 10G | — |
 
 The operator only ever unseals `red-vault-s` (one key). The cluster nodes hold
 a periodic, narrowly scoped Transit token and unseal themselves. See
@@ -92,6 +94,7 @@ vault namespace list
 | `make identity` / `identity-verify` | People: LDAP + Keycloak + Vault auth / prove every login |
 | `make identity-show-user PERSON=<uid>` | Print one lab password (explicit, lab only) |
 | `make ui-start-auth` | Host console with Keycloak sign-in and role gating |
+| `make proxy` / `proxy-failover-test` | Front door on red-proxy-1 / prove leader failover through it |
 
 ## Secret boundary
 
@@ -110,6 +113,28 @@ every task that touches one is `no_log: true` and `diff: false`.
 `scripts/secret-scan.sh` proves known values are absent from `.build/` (or
 any paths you pass) without printing them. `.build/` holds only non-secret
 evidence: `ownership.json`, `convergence.json`, `validation.json`.
+
+## Front door
+
+Everything you open in a browser goes through `red-proxy-1`:
+
+| URL | What | Backend |
+| --- | --- | --- |
+| `https://<proxy>` | red_pass console (Keycloak sign-in) | red-ux-1:3443 |
+| `https://<proxy>:8200` | Vault UI + API, all writes | **active node only** (bare `sys/health` = 200) |
+| `https://<proxy>:8202` | Vault reads | any unsealed node (`standbyok&perfstandbyok`) |
+| `https://<proxy>:8443` | Keycloak (the issuer Vault and the console trust) | red-identity-1:8443 |
+| `https://<proxy>:8210` | Seal Vault (operator) | red-vault-s |
+| `https://<proxy>:9000/node/<name>/v1/…` | any single Vault node, for diagnosis | that node |
+| `https://<proxy>:8404/stats` | HAProxy stats (`stats` / password in Vault KV `secret/red-pass/proxy`) | — |
+
+TLS terminates at the proxy with a lab-CA certificate (SANs: the proxy IP,
+`red-proxy-1`, `vault.red-pass.lab`, `ui.red-pass.lab`, `id.red-pass.lab`) and is
+re-encrypted to each backend with `verify required` + `verifyhost`. The
+console and Keycloak accept connections **only from the proxy**; trust the lab
+CA (`.secrets/tls/ca.crt`) in your browser/keychain to avoid warnings.
+`make proxy-failover-test` stops Vault on the active node and proves the
+front door follows the new leader (≈4 s) while the old node auto-unseals.
 
 ## People (identity)
 
@@ -144,7 +169,7 @@ evidence-backed indicators per VM):
 
 | Mode | Where | How | Lifecycle actions |
 | --- | --- | --- | --- |
-| **VM** | `https://<red-ux-1 ip>:3443` (lab-CA TLS) | deployed by `make lab` / `make ux-deploy`; Keycloak sign-in required | none — observe-only |
+| **VM** | `https://<red-proxy-1 ip>` (front door → red-ux-1) | deployed by `make lab` / `make ux-deploy`; Keycloak sign-in required | none — observe-only |
 | **Host** | `http://127.0.0.1:3310` | `make ui-start` (open, loopback) or `make ui-start-auth` (Keycloak sign-in) | by role: operator start/restart/stop/suspend, admin also delete/recover/purge |
 
 In VM mode the UI reads the evidence Ansible pushes (`make ux-sync`, also the

@@ -28,4 +28,10 @@ for unit in {{ svc.units | join(' ') }}; do
 done
 service_http="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 4 '{{ svc.url }}' 2>/dev/null || true)"
 printf 'service_unit=%s\nservice_active=%s\nservice_http=%s\n' "$service_unit" "$service_active" "$service_http"
+{% if lab_service_nodes[inventory_hostname].role == 'proxy' %}
+# Front door: backend/server/status from HAProxy's loopback-only CSV stats.
+front_door="$(curl --silent --max-time 3 'http://127.0.0.1:8405/;csv' 2>/dev/null |
+  awk -F, 'NR > 1 && $2 != "FRONTEND" && $2 != "BACKEND" && $1 !~ /^stats/ { printf "%s%s:%s:%s", sep, $1, $2, $18; sep = ";" }' || true)"
+printf 'front_door=%s\n' "$front_door"
+{% endif %}
 {% endif %}

@@ -1,5 +1,5 @@
 export type EvidenceStatus = 'pass' | 'warn' | 'fail' | 'unknown'
-export type EvidenceScope = 'node' | 'cluster' | 'seal-chain' | 'identity'
+export type EvidenceScope = 'node' | 'cluster' | 'seal-chain' | 'identity' | 'front-door'
 export type EvidenceSource = 'multipass' | 'ansible' | 'rhel' | 'vault'
 /** The fourth posture slot is `vault` on Vault nodes and `service` on service VMs. */
 export type PostureKind = 'provisioned' | 'rhel' | 'ansible' | 'vault' | 'service'
@@ -70,6 +70,19 @@ export interface SealChain {
   links: SealLink[]
 }
 
+/** One public entry point of the front door and its live backends. */
+export interface FrontDoorEntry {
+  key: string
+  label: string
+  url: string
+  servers: { name: string, status: 'UP' | 'DOWN' | 'MAINT' | 'UNKNOWN' }[]
+}
+
+export interface FrontDoor {
+  node: string
+  entries: FrontDoorEntry[]
+}
+
 export interface InstancesResponse {
   mode: LabMode
   available: boolean
@@ -79,6 +92,7 @@ export interface InstancesResponse {
   instances: InstanceSummary[]
   cluster: EvidenceCheck[]
   sealChain: SealChain | null
+  frontDoor: FrontDoor | null
 }
 
 export interface InstanceDetailResponse {
@@ -89,6 +103,7 @@ export interface InstanceDetailResponse {
   instance: InstanceSummary | null
   cluster: EvidenceCheck[]
   sealChain: SealChain | null
+  frontDoor: FrontDoor | null
 }
 
 export type InstanceAction = 'start' | 'stop' | 'restart' | 'suspend' | 'delete' | 'recover'

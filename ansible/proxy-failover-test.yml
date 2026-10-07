@@ -1,0 +1,83 @@
+---
+# proxy-failover-test.yml — stop Vault on the active node; the front door must
+# serve the new leader within 30 s; start the node again (it auto-unseals).
+# Changes live state on purpose: explicit `make proxy-failover-test` only.
+
+- name: Build the in-memory inventory
+  ansible.builtin.import_playbook: discover.yml
+
+- name: Find the active node through the front door
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Ask every node whether it is active
+      ansible.builtin.uri:
+        url: "https://{{ hostvars[item].ansible_host }}:{{ vault_api_port }}/v1/sys/health"
+        ca_path: "{{ vault_ca_cert }}"
+        status_code: [200, 429, 472, 473, 501, 503]
+      loop: "{{ groups['vault'] | sort }}"
+      register: fo_health
+
+    - name: Remember the active node
+      ansible.builtin.set_fact:
+        fo_active: "{{ (fo_health.results | selectattr('status', 'equalto', 200) | first).item }}"
+
+    - name: Target it in the next plays
+      ansible.builtin.add_host:
+        name: "{{ fo_active }}"
+        groups: failover_target
+      changed_when: false
+
+- name: Stop Vault on the active node
+  hosts: failover_target
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Stop vault
+      ansible.builtin.systemd_service:
+        name: vault
+        state: stopped
+
+- name: The front door follows the new leader
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Wait for an active node through the front door
+      ansible.builtin.uri:
+        url: "{{ front_door_url }}:{{ proxy_ports.vault }}/v1/sys/health"
+        ca_path: "{{ vault_ca_cert }}"
+        status_code: [200, 503]
+      register: fo_door
+      until: fo_door.status == 200
+      retries: 15
+      delay: 2
+
+    - name: Report the new leader
+      ansible.builtin.debug:
+        msg: "Front door serves again ({{ fo_door.attempts | default(1) * 2 }} s); old active {{ fo_active }} stopped."
+
+- name: Bring the old active node back
+  hosts: failover_target
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Start vault
+      ansible.builtin.systemd_service:
+        name: vault
+        state: started
+
+- name: It auto-unseals and rejoins
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Wait for the node to be unsealed (standby)
+      ansible.builtin.uri:
+        url: "https://{{ hostvars[fo_active].ansible_host }}:{{ vault_api_port }}/v1/sys/seal-status"
+        ca_path: "{{ vault_ca_cert }}"
+      register: fo_back
+      until: not fo_back.json.sealed
+      retries: 30
+      delay: 2

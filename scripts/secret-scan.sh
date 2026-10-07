@@ -32,6 +32,9 @@ if [[ -n "${leader}" && -f "${SECRETS_DIR}/platform-token" ]]; then
   done < <(curl -fsS --cacert "${SECRETS_DIR}/tls/ca.crt" -H "X-Vault-Token: $(<"${SECRETS_DIR}/platform-token")" \
     "https://${leader}:8200/v1/secret/data/red-pass/identity" 2>/dev/null |
     jq -r '.data.data // {} | to_entries[] | "\(.key)\t\(.value)"' || true)
+  stats="$(curl -fsS --cacert "${SECRETS_DIR}/tls/ca.crt" -H "X-Vault-Token: $(<"${SECRETS_DIR}/platform-token")" \
+    "https://${leader}:8200/v1/secret/data/red-pass/proxy" 2>/dev/null | jq -r '.data.data.stats_password // empty' || true)"
+  [[ -n "${stats}" ]] && values["proxy-stats"]="${stats}"
 fi
 
 targets=("$@")

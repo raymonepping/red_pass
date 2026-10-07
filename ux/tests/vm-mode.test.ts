@@ -37,3 +37,18 @@ describe('service-node evidence', () => {
     expect(isVaultRole('seal')).toBe(true)
   })
 })
+
+describe('front-door probe parsing', () => {
+  it('keeps backend/server/status triples', async () => {
+    const { parseFrontDoor } = await import('../server/utils/checks')
+    expect(parseFrontDoor('vault_active:red-vault-2:UP;vault_active:red-vault-1:DOWN 1/2;ui:red-ux-1:UP')).toEqual([
+      { backend: 'vault_active', server: 'red-vault-2', status: 'UP' },
+      { backend: 'vault_active', server: 'red-vault-1', status: 'DOWN' },
+      { backend: 'ui', server: 'red-ux-1', status: 'UP' },
+    ])
+  })
+  it('drops malformed or hostile entries', async () => {
+    const { parseFrontDoor } = await import('../server/utils/checks')
+    expect(parseFrontDoor('x;;BAD NAME:a:UP;ok:srv:<script>')).toEqual([{ backend: 'ok', server: 'srv', status: 'UNKNOWN' }])
+  })
+})

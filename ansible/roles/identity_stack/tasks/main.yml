@@ -88,18 +88,24 @@
   no_log: true
 
 # ── Quadlet units ────────────────────────────────────────────────────────────
-- name: Install the Quadlet network and containers
+- name: Remove the bridge network (host networking now)
+  ansible.builtin.file:
+    path: /etc/containers/systemd/red-identity.network
+    state: absent
+  register: idstack_old_net
+
+- name: Install the Quadlet containers
   ansible.builtin.template:
     src: "{{ item }}.j2"
     dest: "/etc/containers/systemd/{{ item }}"
     mode: "0644"
-  loop: [red-identity.network, openldap.container, keycloak.container]
+  loop: [openldap.container, keycloak.container]
   register: idstack_units
 
 - name: Regenerate units after Quadlet changes
   ansible.builtin.systemd_service:
     daemon_reload: true
-  when: idstack_units is changed
+  when: idstack_units is changed or idstack_old_net is changed
 
 - name: Restart OpenLDAP when its unit or TLS changed
   ansible.builtin.systemd_service:
@@ -125,13 +131,19 @@
     state: started
   loop: [openldap, keycloak]
 
-- name: Open LDAPS and Keycloak HTTPS
-  ansible.posix.firewalld:
-    port: "{{ item }}/tcp"
-    permanent: true
-    immediate: true
-    state: enabled
-  loop: ["{{ ldaps_port }}", "{{ keycloak_port }}"]
+# LDAPS only for the Vault cluster; Keycloak only for the front door once it
+# exists (everyone reaches Keycloak through the proxy then).
+- name: Open LDAPS to the Vault cluster
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/firewall-port.yml"
+  vars:
+    fw_port: "{{ ldaps_port }}"
+    fw_sources: "{{ groups['vault'] | map('extract', hostvars, 'ansible_host') | list }}"
+
+- name: Open Keycloak HTTPS (front door only, when present)
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/firewall-port.yml"
+  vars:
+    fw_port: "{{ keycloak_port }}"
+    fw_sources: "{{ [hostvars[proxy_node].ansible_host] if front_door | bool else [] }}"
 
 # Anonymous reads of the base are denied by ACL (answered as "No such
 # object"); the root DSE is public and lists the naming context.
@@ -153,6 +165,17 @@
   retries: 60
   delay: 5
   until: idstack_kc_ready.status == 200
+
+# Keycloak is configured through its public URL (the front door, once it
+# exists); wait until that path serves the realm-independent discovery.
+- name: Wait for Keycloak at its public URL
+  ansible.builtin.uri:
+    url: "{{ keycloak_public_url }}/realms/master/.well-known/openid-configuration"
+  register: idstack_kc_public
+  check_mode: false
+  retries: 30
+  delay: 3
+  until: idstack_kc_public.status == 200
 
 - name: Load the directory content
   ansible.builtin.include_tasks: directory.yml

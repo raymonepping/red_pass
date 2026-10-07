@@ -1,0 +1,14 @@
+---
+# proxy.yml — the front door on red-proxy-1 (prompt 08).
+#
+#   make proxy
+
+- name: Build the in-memory inventory
+  ansible.builtin.import_playbook: discover.yml
+
+- name: HAProxy front door
+  hosts: proxy
+  become: true
+  gather_facts: false
+  roles:
+    - edge_proxy

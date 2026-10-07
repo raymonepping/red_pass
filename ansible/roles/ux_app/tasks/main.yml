@@ -196,12 +196,12 @@
     mode: "0644"
   notify: Restart red-ux
 
-- name: Open the UI port
-  ansible.posix.firewalld:
-    port: "{{ ux_port }}/tcp"
-    permanent: true
-    immediate: true
-    state: enabled
+# Once the front door exists, the UI answers only the proxy.
+- name: Open the UI port (front door only, when present)
+  ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/firewall-port.yml"
+  vars:
+    fw_port: "{{ ux_port }}"
+    fw_sources: "{{ [hostvars[proxy_node].ansible_host] if front_door | bool else [] }}"
 
 - name: Push the current evidence
   ansible.builtin.include_tasks: sync.yml

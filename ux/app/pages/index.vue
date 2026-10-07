@@ -89,6 +89,7 @@ async function purge(confirmation: string) {
 
     <template v-if="plane?.available">
       <SealChainPanel :chain="plane.sealChain" :checking="checking" />
+      <FrontDoorPanel v-if="plane.frontDoor" :door="plane.frontDoor" />
 
       <div v-if="!observeOnly" class="toolbar">
         <div class="segmented" role="tablist" aria-label="Instance list">
