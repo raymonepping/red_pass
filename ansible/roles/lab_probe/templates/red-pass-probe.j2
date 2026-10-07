@@ -10,8 +10,9 @@ if [ -z "$(swapon --show --noheadings 2>/dev/null)" ]; then swap=disabled; else 
 firewall="$(systemctl is-active firewalld 2>/dev/null || true)"
 failed_services="$(systemctl --failed --no-legend --plain 2>/dev/null | sed '/^[[:space:]]*$/d' | wc -l | tr -d ' ')"
 root_fs="$(df -B1 --output=size,pcent / 2>/dev/null | tail -n 1 | tr -s ' ' | sed 's/^ //' || true)"
-printf 'release=%s\narchitecture=%s\nselinux=%s\nswap=%s\nfirewall=%s\nfailed_services=%s\nroot_fs=%s\n' \
-  "$release" "$architecture" "$selinux" "$swap" "$firewall" "$failed_services" "$root_fs"
+clock_offset="$(chronyc -c tracking 2>/dev/null | cut -d, -f5 || true)"
+printf 'release=%s\narchitecture=%s\nselinux=%s\nswap=%s\nfirewall=%s\nfailed_services=%s\nroot_fs=%s\nclock_offset=%s\n' \
+  "$release" "$architecture" "$selinux" "$swap" "$firewall" "$failed_services" "$root_fs" "$clock_offset"
 {% if inventory_hostname in groups['vault'] + groups['vault_seal'] %}
 vault_service="$(systemctl is-active vault 2>/dev/null || true)"
 vault_health="$(curl --silent --max-time 4 'https://127.0.0.1:{{ vault_api_port }}/v1/sys/health{{ '' if inventory_hostname == lab_seal_node else '?standbyok=true&perfstandbyok=true' }}' 2>/dev/null | tr -d '\n' || true)"
@@ -19,8 +20,12 @@ vault_seal="$(curl --silent --max-time 4 'https://127.0.0.1:{{ vault_api_port }}
 printf 'vault_service=%s\nvault_health=%s\nvault_seal=%s\n' "$vault_service" "$vault_health" "$vault_seal"
 {% else %}
 {% set svc = lab_service_probes[lab_service_nodes[inventory_hostname].role] %}
-service_unit='{{ svc.unit }}'
-service_active="$(systemctl is-active '{{ svc.unit }}' 2>/dev/null || true)"
+service_unit='{{ svc.units | join(',') }}'
+service_active=''
+for unit in {{ svc.units | join(' ') }}; do
+  state="$(systemctl is-active "$unit" 2>/dev/null || true)"
+  service_active="${service_active:+$service_active,}${state:-unknown}"
+done
 service_http="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 4 '{{ svc.url }}' 2>/dev/null || true)"
 printf 'service_unit=%s\nservice_active=%s\nservice_http=%s\n' "$service_unit" "$service_active" "$service_http"
 {% endif %}

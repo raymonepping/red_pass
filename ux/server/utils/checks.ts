@@ -138,6 +138,10 @@ export async function nodeChecks(name: string, address: string | undefined, role
         check('firewalld', 'Firewall', values.firewall === 'active' ? 'pass' : 'fail', 'rhel', values.firewall || 'Inactive'),
         check('systemd', 'Failed services', values.failed_services === '0' ? 'pass' : 'warn', 'rhel', values.failed_services === '0' ? 'None' : `${values.failed_services || 'Unknown'} failed`),
       ]
+      const offset = Number.parseFloat(values.clock_offset || '')
+      rhel.push(Number.isFinite(offset)
+        ? check('clock', 'Clock (chrony)', Math.abs(offset) <= 2 ? 'pass' : 'warn', 'rhel', `${offset >= 0 ? '+' : ''}${offset.toFixed(3)} s from NTP`)
+        : check('clock', 'Clock (chrony)', 'unknown', 'rhel', 'Offset unavailable'))
       const root = parseRootFs(values.root_fs)
       rhel.push(root
         ? check('root-fs', 'Root filesystem', root.usedPercent < 85 ? 'pass' : 'warn', 'rhel', `${(root.bytes / 1024 ** 3).toFixed(1)} GB, ${root.usedPercent}% used`)

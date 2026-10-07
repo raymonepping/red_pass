@@ -6,6 +6,7 @@ export default defineEventHandler(async (event): Promise<ActionResponse> => {
   assertLocalOrigin(event)
   const name = getRouterParam(event, 'name') || ''
   const action = getRouterParam(event, 'action') || ''
+  await requireRole(event, requiredRole(action))
   requireValidName(name)
   if (!INSTANCE_ACTIONS.includes(action as InstanceAction) || action === 'delete') {
     throw createError({ statusCode: 404, statusMessage: 'Unsupported instance action.' })

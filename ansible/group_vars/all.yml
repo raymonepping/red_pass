@@ -11,6 +11,7 @@ lab_seal_node: red-vault-s
 # Service VMs (no Vault): inventory group, manifest role and sizing.
 lab_service_nodes:
   red-ux-1: { group: ux, role: ux, cpus: 1, memory: 2G, disk: 10G }
+  red-identity-1: { group: identity, role: identity, cpus: 2, memory: 4G, disk: 15G }
 lab_vault_nodes: "{{ lab_cluster_nodes + [lab_seal_node] }}"
 lab_nodes: "{{ lab_vault_nodes + (lab_service_nodes | list) }}"
 vault_leader: red-vault-1
@@ -98,7 +99,8 @@ probe_script: /usr/local/libexec/red-pass-probe
 probe_key: "{{ secrets_dir }}/ux/probe_ed25519"
 # Service units and HTTPS health URLs probed on service nodes.
 lab_service_probes:
-  ux: { unit: red-ux, url: "https://127.0.0.1:3443/api/health" }
+  ux: { units: [red-ux], url: "https://127.0.0.1:3443/api/health" }
+  identity: { units: [keycloak, openldap], url: "https://127.0.0.1:9000/health/ready" }
 
 # ── Control-plane UI in red-ux-1 (VM mode) ───────────────────────────────────
 ux_user: redux
@@ -109,3 +111,43 @@ ux_evidence_dir: /var/lib/red-ux/evidence
 ux_bundle_dir: "{{ build_dir }}/ux"
 # Extra browser origins allowed for mutating requests (08 adds the proxy).
 ux_extra_origins: []
+
+# ── Identity: OpenLDAP + Keycloak on red-identity-1 (prompt 07) ──────────────
+identity_node: red-identity-1
+identity_realm: red-pass
+identity_domain: red-pass.lab
+identity_base_dn: dc=red-pass,dc=lab
+identity_conf_dir: /etc/red-identity
+# Pinned multi-arch index digests (native linux/arm64 verified on Docker Hub).
+keycloak_image: docker.io/keycloak/keycloak:26.6.4@sha256:0aae0de7fca85525f727d3354df17896092de8bb26ae4c12d89c77e5df8cbce4
+openldap_image: docker.io/osixia/openldap:1.5.0@sha256:18742e9c449c9c1afe129d3f2f3ee15fb34cc43e5f940a20f3399728f41d7c28
+keycloak_port: 8443
+keycloak_mgmt_port: 9000
+ldaps_port: 636
+# The issuer must be fixed: Vault checks it. 08 moves it to the front door.
+keycloak_public_url: "https://{{ hostvars[identity_node].ansible_host | default('red-identity-1') }}:{{ keycloak_port }}"
+keycloak_issuer: "{{ keycloak_public_url }}/realms/{{ identity_realm }}"
+ldaps_url: "ldaps://{{ hostvars[identity_node].ansible_host | default('red-identity-1') }}:{{ ldaps_port }}"
+# Directory content. No passwords here: they live in Vault KV.
+identity_groups:
+  red-pass-admins: { policy: red-pass-admin, ui_role: admin }
+  red-pass-operators: { policy: red-pass-operator, ui_role: operator }
+  red-pass-viewers: { policy: red-pass-viewer, ui_role: viewer }
+identity_users:
+  - { uid: raymon, cn: Raymon, sn: Epping, group: red-pass-admins }
+  - { uid: barend, cn: Barend, sn: Demo, group: red-pass-operators }
+  - { uid: viewer, cn: Viewer, sn: Demo, group: red-pass-viewers }
+# Vault KV v2 (root namespace) holding every identity secret.
+identity_kv_mount: secret
+identity_kv_path: red-pass/identity
+identity_secret_keys: [ldap_admin_password, ldap_readonly_password, keycloak_admin_password, vault_client_secret, ui_client_secret, ui_session_password]
+# Browser origins of the UI (Keycloak redirect URIs, allowed Origins).
+ux_public_origins: "{{ ['https://' ~ (hostvars['red-ux-1'].ansible_host | default('red-ux-1')) ~ ':' ~ ux_port] + ux_extra_origins }}"
+# Vault OIDC callback URIs: every cluster node (08 adds the front door).
+vault_oidc_redirect_uris: >-
+  {{ (groups['vault'] | default([]) | map('extract', hostvars, 'ansible_host')
+      | map('regex_replace', '^(.*)$', 'https://\1:8200/ui/vault/auth/oidc/oidc/callback') | list)
+     + vault_oidc_extra_redirect_uris + ['http://localhost:8250/oidc/callback'] }}
+vault_oidc_extra_redirect_uris: []
+# The loopback host console (make ui-start-auth) may also sign people in.
+ux_host_origin: "http://127.0.0.1:3310"

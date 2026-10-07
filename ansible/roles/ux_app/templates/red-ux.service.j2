@@ -15,7 +15,16 @@ Environment=RED_PASS_MODE=vm
 Environment=RED_PASS_EVIDENCE_DIR={{ ux_evidence_dir }}
 Environment=RED_PASS_PROBE_KEY={{ ux_conf_dir }}/probe_ed25519
 Environment=RED_PASS_KNOWN_HOSTS={{ ux_conf_dir }}/known_hosts
-Environment=RED_PASS_ALLOWED_ORIGINS={{ (['https://' ~ ansible_host ~ ':' ~ ux_port] + ux_extra_origins) | join(',') }}
+Environment=RED_PASS_ALLOWED_ORIGINS={{ ux_public_origins | join(',') }}
+# Outbound TLS (Keycloak discovery/JWKS/token) trusts the lab CA.
+Environment=NODE_EXTRA_CA_CERTS=/etc/pki/ca-trust/source/anchors/red-pass-lab-ca.crt
+{% if ux_auth | default(false) | bool %}
+Environment=RED_PASS_OIDC_ISSUER={{ keycloak_issuer }}
+Environment=RED_PASS_OIDC_CLIENT_ID=red-pass-ui
+Environment=RED_PASS_OIDC_CLIENT_SECRET_FILE={{ ux_conf_dir }}/oidc-client-secret
+Environment=RED_PASS_SESSION_SECRET_FILE={{ ux_conf_dir }}/session-secret
+Environment=RED_PASS_GROUP_ROLES={{ identity_groups | dict2items | map(attribute='key') | zip(identity_groups | dict2items | map(attribute='value.ui_role')) | map('join', '=') | join(',') }}
+{% endif %}
 ExecStart=/usr/bin/node {{ ux_home }}/start.mjs
 Restart=on-failure
 RestartSec=3

@@ -96,6 +96,28 @@
     group: "{{ ux_user }}"
     mode: "0644"
 
+# ── Sign-in (OIDC client of Keycloak) when the lab has people ───────────────
+- name: Decide whether the console signs people in
+  ansible.builtin.set_fact:
+    ux_auth: "{{ groups['identity'] | default([]) | length > 0 }}"
+
+- name: Install the OIDC client secret and session key (contents suppressed)
+  ansible.builtin.copy:
+    content: "{{ hostvars['localhost'].identity_secrets[item.key] }}\n"
+    dest: "{{ ux_conf_dir }}/{{ item.file }}"
+    owner: "{{ ux_user }}"
+    group: "{{ ux_user }}"
+    mode: "0600"
+  loop:
+    - { key: ui_client_secret, file: oidc-client-secret }
+    - { key: ui_session_password, file: session-secret }
+  loop_control:
+    label: "{{ item.file }}"
+  no_log: true
+  diff: false
+  when: ux_auth | bool
+  notify: Restart red-ux
+
 # ── Release ──────────────────────────────────────────────────────────────────
 - name: Check whether this release is already unpacked
   ansible.builtin.stat:

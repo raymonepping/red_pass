@@ -123,3 +123,37 @@
     name: firewalld
     state: started
     enabled: true
+
+# ── Time ─────────────────────────────────────────────────────────────────────
+# Multipass guests fall minutes behind after host sleep; RHEL's default
+# `makestep 1.0 3` only steps at boot, so chrony slews for hours. Tokens
+# (OIDC exp/iat, Vault TTLs) then look expired. Allow stepping at any time.
+- name: Let chrony step the clock whenever it is off by more than a second
+  ansible.builtin.lineinfile:
+    path: /etc/chrony.conf
+    regexp: '^makestep\s'
+    line: makestep 1.0 -1
+  register: rhel_chrony_conf
+
+- name: Restart chronyd after a configuration change
+  ansible.builtin.systemd_service:
+    name: chronyd
+    state: restarted
+    enabled: true
+  when: rhel_chrony_conf is changed
+
+- name: Read the clock offset
+  ansible.builtin.command:
+    argv: [chronyc, -c, tracking]
+  register: rhel_tracking
+  changed_when: false
+  check_mode: false
+  retries: 10
+  delay: 2
+  until: rhel_tracking.rc == 0
+
+- name: Step the clock now when it is off by more than a second
+  ansible.builtin.command:
+    argv: [chronyc, makestep]
+  changed_when: true
+  when: (rhel_tracking.stdout.split(',')[4] | float | abs) > 1.0

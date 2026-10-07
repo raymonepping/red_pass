@@ -3,6 +3,7 @@ import type { ActionResponse } from '../../shared/types'
 export default defineEventHandler(async (event): Promise<ActionResponse> => {
   assertHostMode()
   assertLocalOrigin(event)
+  await requireRole(event, 'admin')
   const body = await readBody<{ confirmation?: string }>(event)
   try {
     assertPurgeConfirmation(body?.confirmation)

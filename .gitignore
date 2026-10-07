@@ -233,3 +233,11 @@ output/*
 !output/.gitkeep
 ux/test-results/
 ux/playwright-report/
+
+.agents/
+.build/
+.cache/
+.claude/
+.codex/
+.impeccable/
+prompts/

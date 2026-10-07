@@ -1,0 +1,68 @@
+---
+# Identity secrets live in Vault KV v2 (root namespace) at
+# secret/red-pass/identity. Generated once by Ansible, read back on every run.
+# Exposes `identity_secrets` (dict) on localhost; every task is no_log.
+
+- name: Address the cluster with the platform token
+  ansible.builtin.set_fact:
+    idsec_addr: "https://{{ hostvars[vault_leader].ansible_host }}:{{ vault_api_port }}"
+
+- name: Manage the identity secrets
+  module_defaults:
+    ansible.builtin.uri:
+      ca_path: "{{ vault_ca_cert }}"
+      headers:
+        X-Vault-Token: "{{ lookup('file', platform_token_path) | trim }}"
+  no_log: true
+  block:
+    - name: Read the root-namespace mounts
+      ansible.builtin.uri:
+        url: "{{ idsec_addr }}/v1/sys/mounts"
+      check_mode: false
+      register: idsec_mounts
+
+    - name: Enable the KV v2 mount for identity secrets
+      ansible.builtin.uri:
+        url: "{{ idsec_addr }}/v1/sys/mounts/{{ identity_kv_mount }}"
+        method: POST
+        body_format: json
+        body: { type: kv, description: red_pass identity secrets (Ansible), options: { version: "2" } }
+        status_code: [200, 204]
+      changed_when: true
+      when: (identity_kv_mount ~ '/') not in idsec_mounts.json.data
+
+    - name: Read the identity secrets
+      ansible.builtin.uri:
+        url: "{{ idsec_addr }}/v1/{{ identity_kv_mount }}/data/{{ identity_kv_path }}"
+        status_code: [200, 404]
+      check_mode: false
+      register: idsec_read
+      # A freshly enabled KV v2 mount needs a moment before it accepts reads.
+      retries: 5
+      delay: 2
+      until: idsec_read.status in [200, 404]
+
+    - name: Work out which secrets are missing
+      ansible.builtin.set_fact:
+        idsec_current: "{{ idsec_read.json.data.data if idsec_read.status == 200 else {} }}"
+        idsec_wanted: "{{ identity_secret_keys + (identity_users | map(attribute='uid') | map('regex_replace', '^', 'user_') | list) }}"
+
+    - name: Generate the missing secrets
+      ansible.builtin.set_fact:
+        idsec_generated: >-
+          {{ idsec_generated | default({}) | combine({item: lookup('ansible.builtin.password', '/dev/null', length=32, chars=['ascii_letters', 'digits'])}) }}
+      loop: "{{ idsec_wanted | difference(idsec_current.keys() | list) }}"
+
+    - name: Store the completed secret set
+      ansible.builtin.uri:
+        url: "{{ idsec_addr }}/v1/{{ identity_kv_mount }}/data/{{ identity_kv_path }}"
+        method: POST
+        body_format: json
+        body: { data: "{{ idsec_current | combine(idsec_generated) }}" }
+        status_code: [200, 204]
+      changed_when: true
+      when: idsec_generated | default({}) | length > 0
+
+    - name: Expose the identity secrets to later plays
+      ansible.builtin.set_fact:
+        identity_secrets: "{{ idsec_current | combine(idsec_generated | default({})) }}"

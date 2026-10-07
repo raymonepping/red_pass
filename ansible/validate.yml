@@ -171,6 +171,17 @@
       loop_control:
         label: "{{ item.0.item }}"
 
+    - name: Identity checks (when red-identity-1 is part of the lab)
+      when: groups['identity'] | default([]) | length > 0
+      block:
+        - name: Read the identity secrets
+          ansible.builtin.include_role:
+            name: identity_secrets
+
+        - name: Exercise every person
+          ansible.builtin.include_role:
+            name: identity_verify
+
     - name: Build the evidence report
       ansible.builtin.set_fact:
         validation:
@@ -193,6 +204,7 @@
               label: Platform namespaces and mounts
               status: "{{ 'pass' if ev_platform_missing | default(vault_namespaces | difference(ev_namespaces)) | length == 0 else 'fail' }}"
               detail: "{{ 'all present' if ev_platform_missing | default(vault_namespaces | difference(ev_namespaces)) | length == 0 else 'missing: ' ~ (ev_platform_missing | default(vault_namespaces | difference(ev_namespaces)) | join(', ')) }}"
+          identity: "{{ identity_report | default([]) }}"
           seal_chain:
             - id: seal_key
               label: Transit key autounseal present
@@ -217,7 +229,8 @@
           {{ (ev_nodes | dict2items | map(attribute='value.checks') | flatten
               | selectattr('status', 'equalto', 'fail') | map(attribute='label') | list)
              + (validation.cluster | selectattr('status', 'equalto', 'fail') | map(attribute='label') | list)
-             + (validation.seal_chain | selectattr('status', 'equalto', 'fail') | map(attribute='label') | list) }}
+             + (validation.seal_chain | selectattr('status', 'equalto', 'fail') | map(attribute='label') | list)
+             + (validation.identity | selectattr('status', 'equalto', 'fail') | map(attribute='label') | list) }}
 
     - name: Require every check to pass
       ansible.builtin.assert:

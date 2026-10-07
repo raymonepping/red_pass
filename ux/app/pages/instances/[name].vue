@@ -16,6 +16,9 @@ const gb = (bytes: number | null | undefined) => bytes == null ? 'Unavailable' :
 const verbs: Record<string, string> = { provisioned: 'Ansible launches it', rhel: 'RHEL runs it', ansible: 'Ansible converges it', vault: 'Vault secures it', service: 'its service answers' }
 const roleLabel = computed(() => instance.value?.labRole ? ROLE_DESCRIPTIONS[instance.value.labRole] : 'Not a red_pass node')
 const observeOnly = computed(() => plane.value?.mode === 'vm')
+const { can } = useAuth()
+const canOperate = can('operator')
+const canAdmin = can('admin')
 const vaultNode = computed(() => isVaultRole(instance.value?.labRole))
 const nodeVault = computed(() => instance.value?.posture.vault.evidence.filter(item => item.scope === 'node') || [])
 const scoped = computed(() => instance.value?.posture.vault.evidence.filter(item => item.scope !== 'node') || [])
@@ -47,12 +50,12 @@ onBeforeUnmount(() => clearInterval(timer))
             <h1 id="instance-title">{{ instance.name }}</h1>
             <p>{{ instance.release || 'Operating system unavailable' }} · <span class="mono">{{ instance.ipv4[0] || 'no IPv4' }}</span> · {{ instance.state }}</p>
           </div>
-          <div v-if="!observeOnly" class="detail-actions">
+          <div v-if="!observeOnly && canOperate" class="detail-actions">
             <button v-if="state === 'running'" class="secondary-button" type="button" :disabled="pending" @click="requestAction('restart', instance)">Restart</button>
             <button v-if="state === 'running'" class="secondary-button" type="button" :disabled="pending" @click="requestAction('stop', instance)">Stop</button>
-            <button v-else-if="instance.deleted" class="secondary-button" type="button" :disabled="pending" @click="requestAction('recover', instance)">Recover</button>
+            <button v-else-if="instance.deleted && canAdmin" class="secondary-button" type="button" :disabled="pending" @click="requestAction('recover', instance)">Recover</button>
             <button v-else class="secondary-button" type="button" :disabled="pending" @click="requestAction('start', instance)">Start</button>
-            <button v-if="!instance.deleted" class="secondary-button" type="button" :disabled="pending" @click="requestAction('delete', instance)">Move to trash</button>
+            <button v-if="!instance.deleted && canAdmin" class="secondary-button" type="button" :disabled="pending" @click="requestAction('delete', instance)">Move to trash</button>
           </div>
         </div>
         <div class="lifecycle">

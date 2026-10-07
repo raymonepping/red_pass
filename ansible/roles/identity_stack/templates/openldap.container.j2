@@ -1,0 +1,38 @@
+# {{ ansible_managed }}
+[Unit]
+Description=red_pass OpenLDAP directory ({{ identity_base_dn }})
+
+[Container]
+Image={{ openldap_image }}
+ContainerName=openldap
+HostName=openldap
+Network=red-identity.network
+# ldaps for clients (Vault); plain 389 only on loopback for Ansible's ldap modules.
+PublishPort={{ ldaps_port }}:636
+PublishPort=127.0.0.1:389:389
+Volume=red-ldap-data:/var/lib/ldap:Z
+Volume=red-ldap-config:/etc/ldap/slapd.d:Z
+Volume={{ identity_conf_dir }}/tls/ldap:/container/service/slapd/assets/certs:Z
+Environment=LDAP_ORGANISATION=red_pass
+Environment=LDAP_DOMAIN={{ identity_domain }}
+Environment=LDAP_BASE_DN={{ identity_base_dn }}
+Environment=LDAP_ADMIN_PASSWORD_FILE=/run/secrets/ldap-admin-password
+Environment=LDAP_CONFIG_PASSWORD_FILE=/run/secrets/ldap-admin-password
+Environment=LDAP_READONLY_USER=true
+Environment=LDAP_READONLY_USER_USERNAME=readonly
+Environment=LDAP_READONLY_USER_PASSWORD_FILE=/run/secrets/ldap-readonly-password
+Environment=LDAP_TLS=true
+Environment=LDAP_TLS_CRT_FILENAME=server.crt
+Environment=LDAP_TLS_KEY_FILENAME=server.key
+Environment=LDAP_TLS_CA_CRT_FILENAME=ca.crt
+Environment=LDAP_TLS_VERIFY_CLIENT=never
+Environment=LDAP_TLS_ENFORCE=false
+Secret=ldap-admin-password
+Secret=ldap-readonly-password
+
+[Service]
+Restart=on-failure
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

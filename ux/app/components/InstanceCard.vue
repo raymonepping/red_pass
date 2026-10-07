@@ -5,6 +5,9 @@ import { ROLE_LABELS, isVaultRole } from '#shared/posture'
 const props = defineProps<{ instance: InstanceSummary, busy?: boolean, observeOnly?: boolean }>()
 const emit = defineEmits<{ evidence: [category: PostureCategory], action: [action: string, instance: InstanceSummary] }>()
 const menuOpen = ref(false)
+const { can } = useAuth()
+const canOperate = can('operator')
+const canAdmin = can('admin')
 
 const gb = (bytes: number | null) => bytes === null ? '—' : `${(bytes / 1024 ** 3).toFixed(bytes >= 10 * 1024 ** 3 ? 0 : 1)} GB`
 const state = computed(() => props.instance.state.toLowerCase())
@@ -41,10 +44,10 @@ function act(action: string) {
       <span><b>{{ gb(instance.resources.diskBytes) }}</b> disk</span>
     </div>
 
-    <div v-if="!observeOnly" class="card-actions">
+    <div v-if="!observeOnly && canOperate" class="card-actions">
       <button v-if="state === 'stopped' || state === 'suspended'" class="primary-button" type="button" :disabled="busy" @click="act('start')">Start</button>
       <button v-else-if="state === 'running'" class="secondary-button" type="button" :disabled="busy" @click="act('restart')">Restart</button>
-      <button v-else-if="instance.deleted" class="primary-button" type="button" :disabled="busy" @click="act('recover')">Recover</button>
+      <button v-else-if="instance.deleted && canAdmin" class="primary-button" type="button" :disabled="busy" @click="act('recover')">Recover</button>
       <div v-if="!instance.deleted" class="menu-wrap">
         <button class="icon-button" type="button" :disabled="busy" :aria-expanded="menuOpen" :aria-label="`More actions for ${instance.name}`" @click="menuOpen = !menuOpen">
           <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><circle cx="4" cy="10" r="1.4" /><circle cx="10" cy="10" r="1.4" /><circle cx="16" cy="10" r="1.4" /></svg>
@@ -52,7 +55,7 @@ function act(action: string) {
         <div v-if="menuOpen" class="menu" role="menu" @mouseleave="menuOpen = false">
           <button v-if="state === 'running'" role="menuitem" type="button" @click="act('stop')">Stop</button>
           <button v-if="state === 'running'" role="menuitem" type="button" @click="act('suspend')">Suspend</button>
-          <button class="danger" role="menuitem" type="button" @click="act('delete')">Move to trash</button>
+          <button v-if="canAdmin" class="danger" role="menuitem" type="button" @click="act('delete')">Move to trash</button>
         </div>
       </div>
     </div>

@@ -1,0 +1,32 @@
+# {{ ansible_managed }}
+[Unit]
+Description=red_pass Keycloak (realm {{ identity_realm }})
+After=openldap.service
+Wants=openldap.service
+
+[Container]
+Image={{ keycloak_image }}
+ContainerName=keycloak
+HostName=keycloak
+Network=red-identity.network
+PublishPort={{ keycloak_port }}:8443
+PublishPort=127.0.0.1:{{ keycloak_mgmt_port }}:9000
+Volume=red-keycloak-data:/opt/keycloak/data:Z
+Volume={{ identity_conf_dir }}/tls/keycloak:/etc/x509/https:ro,Z
+Environment=KC_BOOTSTRAP_ADMIN_USERNAME=admin
+Secret=keycloak-admin-password,type=env,target=KC_BOOTSTRAP_ADMIN_PASSWORD
+Exec=start \
+  --hostname={{ keycloak_public_url }} \
+  --https-certificate-file=/etc/x509/https/server.crt \
+  --https-certificate-key-file=/etc/x509/https/server.key \
+  --http-enabled=false \
+  --health-enabled=true \
+  --proxy-headers=xforwarded \
+  --db=dev-file
+
+[Service]
+Restart=on-failure
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target

@@ -17,6 +17,8 @@ const ordered = computed(() => [...(plane.value?.instances || [])].sort((a, b) =
 }))
 const visible = computed(() => ordered.value.filter(item => filter.value === 'trash' ? item.deleted : !item.deleted))
 const observeOnly = computed(() => plane.value?.mode === 'vm')
+const { can } = useAuth()
+const canAdmin = can('admin')
 const lab = computed(() => ordered.value.filter(item => item.labRole && !item.deleted))
 const vaultNodes = computed(() => lab.value.filter(item => isVaultRole(item.labRole)))
 const secured = computed(() => vaultNodes.value.filter(item => item.posture.vault.status === 'Secured').length)
@@ -93,7 +95,7 @@ async function purge(confirmation: string) {
           <button type="button" role="tab" :aria-selected="filter === 'instances'" :class="{ active: filter === 'instances' }" @click="filter = 'instances'">Instances <span>{{ plane.summary.total - plane.summary.deleted }}</span></button>
           <button type="button" role="tab" :aria-selected="filter === 'trash'" :class="{ active: filter === 'trash' }" @click="filter = 'trash'">Trash <span>{{ plane.summary.deleted }}</span></button>
         </div>
-        <button v-if="filter === 'trash' && plane.summary.deleted" class="text-danger" type="button" @click="purgeOpen = true">Purge trash…</button>
+        <button v-if="filter === 'trash' && plane.summary.deleted && canAdmin" class="text-danger" type="button" @click="purgeOpen = true">Purge trash…</button>
       </div>
 
       <div v-if="visible.length" class="instance-grid">

@@ -104,3 +104,14 @@ export interface ActionResponse {
   message: string
   instance?: InstanceSummary | null
 }
+
+export type UserRole = 'viewer' | 'operator' | 'admin'
+
+/** What the BFF tells the browser about the person. Never a token. */
+export interface SessionInfo {
+  authEnabled: boolean
+  authRequired: boolean
+  authenticated: boolean
+  user: string | null
+  role: UserRole | null
+}

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 const route = useRoute()
 const { plane } = usePlane()
+const { session } = useAuth()
+const person = computed(() => session.value?.authenticated ? session.value : null)
 
 const chain = computed(() => {
   const value = plane.value?.sealChain
@@ -51,6 +53,12 @@ const title = computed(() => route.path.startsWith('/instances/') ? decodeURICom
             <span class="cluster-pill" :class="chain.tone" role="status">
               <span class="cluster-dot" :class="{ live: chain.tone === 'healthy' }" />
               <span class="cluster-label">{{ chain.label }}</span>
+            </span>
+            <span v-if="person" class="persona">
+              <span class="persona-dot" aria-hidden="true" />
+              <span class="persona-name">{{ person.user }}</span>
+              <span class="persona-role">{{ person.role }}</span>
+              <a class="persona-out" href="/auth/logout">Sign out</a>
             </span>
             <span class="env-badge" :title="mode === 'vm' ? 'Running inside red-ux-1: observe-only' : 'Running on the host next to Multipass'">{{ mode === 'vm' ? 'VM' : 'HOST' }}</span>
           </div>
@@ -123,6 +131,12 @@ const title = computed(() => route.path.startsWith('/instances/') ? decodeURICom
 .cluster-pill.unknown { background: color-mix(in srgb, var(--vg-hue-slate) 10%, transparent); color: var(--vg-text-muted); border: 1px solid color-mix(in srgb, var(--vg-hue-slate) 20%, transparent); }
 .cluster-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .cluster-dot.live { animation: vgPulse 2.4s ease infinite; box-shadow: 0 0 8px currentColor; }
+.persona { display: flex; align-items: center; gap: 7px; padding: 3px 4px 3px 10px; border: 1px solid var(--vg-glass-border); border-radius: 100px; font-size: 12px; color: var(--vg-text-secondary); }
+.persona-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--vg-action-bright); box-shadow: 0 0 0 2px color-mix(in srgb, var(--vg-hue-blue) 18%, transparent); }
+.persona-name { font-weight: 650; color: var(--vg-text-primary); }
+.persona-role { font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--vg-action-bright); }
+.persona-out { padding: 2px 9px; border-radius: 100px; font-weight: 600; color: var(--vg-text-secondary); background: var(--vg-hover); }
+.persona-out:hover { color: var(--vg-text-primary); }
 .env-badge { font-size: 10px; font-weight: 700; letter-spacing: 0.12em; color: var(--vg-text-muted); border: 1px solid var(--vg-glass-border); border-radius: 5px; padding: 3px 8px; }
 .vg-content { flex: 1; padding: 20px 24px 40px; min-width: 0; }
 
@@ -132,6 +146,7 @@ const title = computed(() => route.path.startsWith('/instances/') ? decodeURICom
   .page-title { display: none; }
 }
 @media (max-width: 640px) {
+  .persona-name, .persona-dot { display: none; }
   .topbar-wrap { padding: 10px 16px 0; }
   .vg-topbar { padding: 0 14px; }
   .env-badge { display: none; }

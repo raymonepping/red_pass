@@ -7,6 +7,17 @@
 - name: Build the in-memory inventory
   ansible.builtin.import_playbook: discover.yml
 
+- name: Identity secrets for the UI's OIDC client (when identity exists)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tags: [deploy]
+  tasks:
+    - name: Read the identity secrets from Vault KV
+      ansible.builtin.include_role:
+        name: identity_secrets
+      when: groups['identity'] | default([]) | length > 0
+
 - name: Control-plane UI
   hosts: ux
   become: true

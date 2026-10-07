@@ -18,7 +18,11 @@ export function usePlane() {
       // Never let a shallow list overwrite deeper evidence already shown.
       if (deep || !plane.value) plane.value = next
       failed.value = false
-    } catch {
+    } catch (error) {
+      if ((error as { statusCode?: number }).statusCode === 401) {
+        await navigateTo('/signin')
+        return
+      }
       failed.value = true
     } finally {
       if (deep) checking.value = false

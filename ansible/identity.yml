@@ -1,0 +1,31 @@
+---
+# identity.yml — people for the lab (prompt 07):
+#   1. identity secrets in Vault KV (generated once)
+#   2. OpenLDAP + Keycloak on red-identity-1 (Podman Quadlet)
+#   3. Vault auth/oidc + auth/ldap + external groups + person policies
+#
+#   make identity
+
+- name: Build the in-memory inventory
+  ansible.builtin.import_playbook: discover.yml
+
+- name: Identity secrets (Vault KV)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  roles:
+    - identity_secrets
+
+- name: OpenLDAP and Keycloak
+  hosts: identity
+  become: true
+  gather_facts: false
+  roles:
+    - identity_stack
+
+- name: Vault trusts people
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  roles:
+    - vault_identity

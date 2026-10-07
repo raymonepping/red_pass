@@ -91,3 +91,17 @@ ux-deploy: ux-build ## Deploy the UI to red-ux-1 (observe-only VM mode)
 
 ux-sync: ## Push the current evidence to red-ux-1
 	TAGS=sync $(RUN) ux
+
+.PHONY: identity identity-verify identity-show-user
+identity: ## OpenLDAP + Keycloak on red-identity-1, Vault oidc/ldap auth and groups
+	$(RUN) identity
+
+identity-verify: ## Every person logs in (Keycloak, Vault OIDC + LDAP) and gets exactly their policies
+	$(RUN) identity-verify
+
+identity-show-user: ## Print one lab login password (PERSON=raymon) — lab only, explicit action
+	@./scripts/identity-show-user.sh "$(PERSON)"
+
+.PHONY: ui-start-auth
+ui-start-auth: ui-build ## Host console with Keycloak sign-in and role gating (needs the identity node)
+	./scripts/ui-start-auth.sh

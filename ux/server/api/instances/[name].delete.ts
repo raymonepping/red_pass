@@ -3,6 +3,7 @@ import type { ActionRequest, ActionResponse } from '../../../shared/types'
 export default defineEventHandler(async (event): Promise<ActionResponse> => {
   assertHostMode()
   assertLocalOrigin(event)
+  await requireRole(event, 'admin')
   const name = getRouterParam(event, 'name') || ''
   requireValidName(name)
   const body = await readBody<ActionRequest>(event)

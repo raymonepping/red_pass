@@ -17,6 +17,12 @@ phase() { printf '\n\033[1;7m %s \033[0m %s\n\n' "$1" "$2" >&2; }
 "${SCRIPT_DIR}/ansible-deps.sh" >/dev/null
 "${SCRIPT_DIR}/check.sh"
 
+# People (OpenLDAP + Keycloak + Vault auth) come in before validation, which
+# then proves them.
+if grep -q '^  red-identity-1:' "${ROOT_DIR}/ansible/group_vars/all.yml"; then
+  PHASES=(provision converge bootstrap platform identity validate)
+fi
+
 # The UI VM, when part of the lab, is deployed and synced last.
 if jq -e '.nodes["red-ux-1"]' "${BUILD_DIR}/ownership.json" >/dev/null 2>&1 ||
   grep -q '^  red-ux-1:' "${ROOT_DIR}/ansible/group_vars/all.yml"; then
