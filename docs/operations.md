@@ -57,15 +57,14 @@ expiry error: `make converge TAGS=rhel`.
 
 ## Restarts and the seal chain
 
-- **Cluster node restarted** — nothing to do. It auto-unseals through
-  `red-vault-s` within seconds of booting (proven by rebooting
-  `red-vault-2`).
-- **`red-vault-s` restarted** — the cluster keeps serving (it is already
-  unsealed). Run `make unseal`. Until then, any cluster node that restarts
-  waits in `ExecStartPre`.
-- **Cold start** (all four stopped): `multipass start red-vault-1 red-vault-2
-  red-vault-3 red-vault-s`, then `make unseal`. The three cluster nodes
-  unseal themselves once the seal Vault is active.
+- **Cluster node restarted** — nothing to do: it auto-unseals through the
+  seal agent within seconds of booting (proven by rebooting `red-vault-2`).
+- **`red-agent-1` restarted** — the cluster keeps serving; the agent logs in
+  again with its current secret-id. Nodes restarting meanwhile wait.
+- **`red-vault-s` restarted** — the cluster keeps serving. Run `make unseal`;
+  the agent re-authenticates by itself.
+- **Cold start** (everything stopped): start `red-vault-s` → `make unseal` →
+  `red-agent-1` → the cluster nodes (any order; they wait for the agent).
 
 Manual unseal of the seal Vault, if Ansible is unavailable:
 
@@ -74,14 +73,20 @@ export VAULT_CACERT=$PWD/.secrets/tls/ca.crt
 VAULT_ADDR=https://<red-vault-s ip>:8200 vault operator unseal "$(jq -r '.keys_base64[0]' .secrets/seal-init.json)"
 ```
 
-## Seal token
+## Seal agent and rotation
 
-Periodic (720h) orphan token, renewed by Vault itself and by every
-`make bootstrap`. `make validate` fails below 72h remaining. If it has
-expired (lookup returns 403), `make bootstrap` creates a new one, rewrites
-`/etc/vault.d/seal.env` on each node and restarts the nodes one at a time.
-An expired seal token looks like a flaky node that won't unseal — check
-`journalctl -u vault` for 403s from the transit seal.
+- `make seal-rotate` rotates the agent's secret-id now (normally every 6 h);
+  `make validate` fails if the last rotation is older than 7 h, if the agent
+  holds no `autounseal` token, or if any cluster node holds a seal credential.
+- The agent's AppRole secret-id expires after 24 h: if rotation is broken for a
+  day, the agent cannot log in again after its token's max TTL (24 h). The
+  validation alarm fires long before that.
+- Rotator credential (anchor): `/etc/vault-agent/approle/rotator-secret-id`,
+  no TTL but usable only from red-agent-1's address and only to mint/destroy
+  the agent's secret-ids. Re-issue it by deleting the file and running
+  `make agent`.
+- If the agent VM is lost: `make lab` re-creates it; it gets a fresh secret-id
+  and the marker path is reused.
 
 ## Platform changes
 

@@ -23,6 +23,7 @@ phase() { printf '\n\033[1;7m %s \033[0m %s\n\n' "$1" "$2" >&2; }
 # OIDC callbacks and the UI origins all point at it.
 has_node() { grep -q "^  $1:" "${ROOT_DIR}/ansible/group_vars/all.yml"; }
 PHASES=(provision converge bootstrap platform)
+has_node red-agent-1 && PHASES+=(agent)
 has_node red-proxy-1 && PHASES+=(proxy)
 has_node red-identity-1 && PHASES+=(identity)
 # The console deploys before validation (so its firewall is final when the

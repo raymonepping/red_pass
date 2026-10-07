@@ -12,11 +12,14 @@ Type=notify
 User=vault
 Group=vault
 {% if inventory_hostname in groups['vault'] %}
+{% if not seal_via_agent | bool %}
 # Transit auto-unseal token (root-owned 0600, read by systemd before
 # dropping privileges). Optional so the unit parses before bootstrap.
 EnvironmentFile=-{{ vault_seal_env_file }}
-# A transit-sealed node exits at startup while the seal Vault is sealed or
-# unreachable. The guard fails fast and systemd retries every RestartSec.
+{% endif %}
+# A transit-sealed node exits at startup while the seal path (seal Vault, or
+# the seal agent in front of it) is not ready. The guard fails fast and
+# systemd retries every RestartSec.
 ExecStartPre=/usr/local/bin/vault-wait-seal
 Restart=always
 {% else %}

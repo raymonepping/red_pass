@@ -1,0 +1,11 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Rotate the seal agent's secret-id every {{ seal_rotate_every }}
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec={{ seal_rotate_every }}
+Persistent=true
+
+[Install]
+WantedBy=timers.target

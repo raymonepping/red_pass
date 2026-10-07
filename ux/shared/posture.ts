@@ -44,6 +44,7 @@ export const ROLE_LABELS: Record<LabRole, string> = {
   ux: 'Control plane',
   identity: 'Identity',
   proxy: 'Front door',
+  agent: 'Seal agent',
 }
 
 export const ROLE_DESCRIPTIONS: Record<LabRole, string> = {
@@ -53,4 +54,5 @@ export const ROLE_DESCRIPTIONS: Record<LabRole, string> = {
   ux: 'Service VM · control-plane UI (observe-only VM mode)',
   identity: 'Service VM · OpenLDAP + Keycloak',
   proxy: 'Service VM · HAProxy front door',
+  agent: 'Service VM · Vault Agent (AppRole) · secret-id rotator',
 }

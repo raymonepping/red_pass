@@ -135,25 +135,26 @@
     line: makestep 1.0 -1
   register: rhel_chrony_conf
 
+# Guests lose time quickly under Multipass; poll at most every 64 s so a drift
+# is measured (and stepped) within a minute instead of chrony's ~17 min.
+- name: Poll NTP often enough to catch Multipass drift
+  ansible.builtin.lineinfile:
+    path: /etc/chrony.conf
+    regexp: '^pool\s'
+    line: pool 2.rhel.pool.ntp.org iburst maxpoll 6
+  register: rhel_chrony_pool
+
 - name: Restart chronyd after a configuration change
   ansible.builtin.systemd_service:
     name: chronyd
     state: restarted
     enabled: true
-  when: rhel_chrony_conf is changed
+  when: rhel_chrony_conf is changed or rhel_chrony_pool is changed
 
-- name: Read the clock offset
+# With makestep 1.0 -1 the next measurement steps the clock; wait for it
+# (corrections below 1 s), checking every 2 s for up to a minute.
+- name: Wait until the clock is synchronised within a second
   ansible.builtin.command:
-    argv: [chronyc, -c, tracking]
-  register: rhel_tracking
+    argv: [chronyc, waitsync, "30", "1", "0", "2"]
   changed_when: false
   check_mode: false
-  retries: 10
-  delay: 2
-  until: rhel_tracking.rc == 0
-
-- name: Step the clock now when it is off by more than a second
-  ansible.builtin.command:
-    argv: [chronyc, makestep]
-  changed_when: true
-  when: (rhel_tracking.stdout.split(',')[4] | float | abs) > 1.0

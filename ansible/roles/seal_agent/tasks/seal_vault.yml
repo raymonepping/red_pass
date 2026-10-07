@@ -1,0 +1,115 @@
+---
+# On red-vault-s (root token from the controller's seal-init.json): AppRole,
+# the agent role (CIDR-bound to red-agent-1) and the rotator role. Runs on
+# localhost. Exposes role-ids (not secret) as facts; secret-ids are minted
+# only when the agent has none, straight into no_log facts.
+
+- name: Address the seal Vault and the agent
+  ansible.builtin.set_fact:
+    sa_seal: "https://{{ hostvars[lab_seal_node].ansible_host }}:{{ vault_api_port }}"
+    sa_cidr: "{{ hostvars[agent_node].ansible_host }}/32"
+
+- name: Configure AppRole on the seal Vault
+  module_defaults:
+    ansible.builtin.uri:
+      ca_path: "{{ vault_ca_cert }}"
+      headers:
+        X-Vault-Token: "{{ (lookup('file', seal_init_path) | from_json).root_token }}"
+  no_log: true
+  block:
+    - name: Read seal Vault auth methods
+      ansible.builtin.uri:
+        url: "{{ sa_seal }}/v1/sys/auth"
+      check_mode: false
+      register: sa_auth
+
+    - name: Enable AppRole
+      ansible.builtin.uri:
+        url: "{{ sa_seal }}/v1/sys/auth/approle"
+        method: POST
+        body_format: json
+        body: { type: approle, description: red_pass seal agent }
+        status_code: [200, 204]
+      changed_when: true
+      when: "'approle/' not in sa_auth.json.data"
+
+    - name: Read the rotator policy
+      ansible.builtin.uri:
+        url: "{{ sa_seal }}/v1/sys/policies/acl/{{ seal_rotator_policy }}"
+        status_code: [200, 404]
+      check_mode: false
+      register: sa_policy
+
+    - name: Write the rotator policy when it differs
+      ansible.builtin.uri:
+        url: "{{ sa_seal }}/v1/sys/policies/acl/{{ seal_rotator_policy }}"
+        method: PUT
+        body_format: json
+        body: { policy: "{{ lookup('file', 'seal-rotator.hcl') }}" }
+        status_code: [200, 204]
+      changed_when: true
+      when: sa_policy.status == 404 or (sa_policy.json.data.policy | trim) != (lookup('file', 'seal-rotator.hcl') | trim)
+
+    - name: Desired AppRole roles (keys built in Jinja; YAML keys are not templated)
+      ansible.builtin.set_fact:
+        sa_roles: >-
+          {{ {seal_approle: {
+                'token_policies': [seal_policy_name], 'token_ttl': 3600, 'token_max_ttl': 86400,
+                'token_type': 'service', 'secret_id_ttl': 86400, 'secret_id_num_uses': 0,
+                'secret_id_bound_cidrs': [sa_cidr], 'token_bound_cidrs': [sa_cidr]},
+              seal_rotator_approle: {
+                'token_policies': [seal_rotator_policy], 'token_ttl': 600, 'token_max_ttl': 600,
+                'token_type': 'service', 'secret_id_ttl': 0, 'secret_id_num_uses': 0,
+                'secret_id_bound_cidrs': [sa_cidr], 'token_bound_cidrs': [sa_cidr]}} }}
+
+    - name: Read the roles
+      ansible.builtin.uri:
+        url: "{{ sa_seal }}/v1/auth/approle/role/{{ item }}"
+        status_code: [200, 404]
+      check_mode: false
+      loop: "{{ sa_roles.keys() | list }}"
+      register: sa_role_reads
+
+    - name: Write roles that differ
+      ansible.builtin.uri:
+        url: "{{ sa_seal }}/v1/auth/approle/role/{{ item.item }}"
+        method: POST
+        body_format: json
+        body: "{{ sa_roles[item.item] }}"
+        status_code: [200, 204]
+      changed_when: true
+      loop: "{{ sa_role_reads.results }}"
+      when: >-
+        item.status == 404 or
+        item.json.data.token_policies != sa_roles[item.item].token_policies or
+        item.json.data.token_ttl != sa_roles[item.item].token_ttl or
+        item.json.data.token_max_ttl != sa_roles[item.item].token_max_ttl or
+        item.json.data.secret_id_ttl != sa_roles[item.item].secret_id_ttl or
+        (item.json.data.secret_id_bound_cidrs | default([], true)) != sa_roles[item.item].secret_id_bound_cidrs or
+        (item.json.data.token_bound_cidrs | default([], true) | map('regex_replace', '/32$', '') | list)
+          != (sa_roles[item.item].token_bound_cidrs | map('regex_replace', '/32$', '') | list)
+
+    - name: Read the role-ids
+      ansible.builtin.uri:
+        url: "{{ sa_seal }}/v1/auth/approle/role/{{ item }}/role-id"
+      check_mode: false
+      loop: [ "{{ seal_approle }}", "{{ seal_rotator_approle }}" ]
+      register: sa_role_ids
+
+    - name: Expose the role-ids
+      ansible.builtin.set_fact:
+        sa_role_id: "{{ sa_role_ids.results[0].json.data.role_id }}"
+        sa_rotator_role_id: "{{ sa_role_ids.results[1].json.data.role_id }}"
+
+    - name: Mint first secret-ids only when the agent has none
+      ansible.builtin.uri:
+        url: "{{ sa_seal }}/v1/auth/approle/role/{{ item.role }}/secret-id"
+        method: POST
+        body_format: json
+        body: { metadata: "{\"by\":\"ansible\"}" }
+      changed_when: true
+      loop:
+        - { role: "{{ seal_approle }}", needed: "{{ not hostvars[agent_node].sa_has_secret_id | default(false) }}" }
+        - { role: "{{ seal_rotator_approle }}", needed: "{{ not hostvars[agent_node].sa_has_rotator_secret | default(false) }}" }
+      when: item.needed | bool
+      register: sa_minted

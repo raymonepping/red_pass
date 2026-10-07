@@ -67,7 +67,7 @@
 - name: Decide whether the service may start
   ansible.builtin.set_fact:
     vault_may_start: >-
-      {{ inventory_hostname == lab_seal_node or vault_seal_env.stat.exists | default(false) }}
+      {{ inventory_hostname == lab_seal_node or seal_via_agent | bool or vault_seal_env.stat.exists | default(false) }}
 
 - name: Enable and start Vault
   ansible.builtin.systemd_service:

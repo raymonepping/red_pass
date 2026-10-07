@@ -52,6 +52,71 @@
                             and '8201/tcp' in host_reads.results[3].stdout.split()) else 'fail' }}
             detail: "{{ host_reads.results[3].stdout | default('') }}"
 
+- name: Seal agent evidence from a cluster node (agent mode)
+  hosts: vault
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Through the agent with this node's client certificate
+      when: seal_via_agent | bool
+      run_once: true
+      no_log: true
+      ansible.builtin.uri:
+        url: "https://{{ hostvars[agent_node].ansible_host }}:{{ agent_port }}/v1/{{ item }}"
+        ca_path: "{{ vault_tls_dir }}/ca.crt"
+        client_cert: "{{ vault_tls_dir }}/server.crt"
+        client_key: "{{ vault_tls_dir }}/server.key"
+      loop: [auth/token/lookup-self, "{{ seal_transit_mount }}/keys/{{ seal_transit_key }}"]
+      register: agent_reads
+      failed_when: false
+      check_mode: false
+
+    - name: Reduce to non-secret facts
+      when: seal_via_agent | bool
+      run_once: true
+      ansible.builtin.set_fact:
+        agent_ev:
+          token_ok: "{{ agent_reads.results[0].status == 200 and seal_policy_name in (agent_reads.results[0].json.data.policies | default([])) }}"
+          ttl: "{{ agent_reads.results[0].json.data.ttl | default(0) | int }}"
+          key_ok: "{{ agent_reads.results[1].status == 200 }}"
+      delegate_facts: true
+      delegate_to: localhost
+
+    - name: No seal credential on this node
+      ansible.builtin.stat:
+        path: "{{ vault_seal_env_file }}"
+      register: node_seal_env
+
+    - name: Vault's environment holds no token
+      ansible.builtin.command:
+        argv: [systemctl, show, vault, -p, Environment, -p, EnvironmentFiles]
+      register: node_vault_env
+      changed_when: false
+      check_mode: false
+
+    - name: Remember the credential state
+      ansible.builtin.set_fact:
+        node_seal_clean: "{{ not node_seal_env.stat.exists and 'VAULT_TOKEN' not in node_vault_env.stdout and 'seal.env' not in node_vault_env.stdout }}"
+
+- name: Seal agent evidence on red-agent-1 (agent mode)
+  hosts: agent
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Read the rotator's last success
+      ansible.builtin.slurp:
+        src: "{{ agent_state_dir }}/rotator-last-success"
+      register: rot_last
+      failed_when: false
+      when: seal_via_agent | bool
+
+    - name: Remember the rotation age
+      ansible.builtin.set_fact:
+        rot_age_hours: >-
+          {{ ((now(utc=true) - (rot_last.content | b64decode | trim | to_datetime('%Y-%m-%dT%H:%M:%SZ'))).total_seconds() / 3600) | round(1)
+             if rot_last.content is defined else -1 }}
+      when: seal_via_agent | bool
+
 - name: Vault evidence and report
   hosts: localhost
   connection: local
@@ -101,7 +166,8 @@
       check_mode: false
       no_log: true
 
-    - name: Read seal-chain evidence (seal token)
+    - name: Read seal-chain evidence (seal token; token mode only)
+      when: not seal_via_agent | bool
       ansible.builtin.uri:
         url: "https://{{ hostvars[lab_seal_node].ansible_host }}:{{ vault_api_port }}/v1/{{ item }}"
         ca_path: "{{ vault_ca_cert }}"
@@ -130,8 +196,8 @@
           {{ dict(platform_reads.results | map(attribute='item')
              | zip(platform_reads.results | map(attribute='json') | map('default', {}) | map(attribute='data', default={})
                    | map('dict2items') | map('map', attribute='key') | map('list'))) }}
-        ev_seal_ttl: "{{ seal_reads.results[0].json.data.ttl | default(0) | int }}"
-        ev_seal_key: "{{ seal_reads.results[1].status == 200 }}"
+        ev_seal_ttl: "{{ (agent_ev.ttl if seal_via_agent | bool else seal_reads.results[0].json.data.ttl | default(0)) | int }}"
+        ev_seal_key: "{{ agent_ev.key_ok if seal_via_agent | bool else seal_reads.results[1].status == 200 }}"
       no_log: true
 
     - name: Find missing platform namespaces and mounts
@@ -214,6 +280,7 @@
           loop:
             - { id: fd-direct-ui, label: "Console refuses direct access", host: "{{ hostvars['red-ux-1'].ansible_host | default('') }}", port: "{{ ux_port }}" }
             - { id: fd-direct-kc, label: "Keycloak refuses direct access", host: "{{ hostvars[identity_node].ansible_host | default('') }}", port: "{{ keycloak_port }}" }
+            - { id: fd-direct-agent, label: "Seal agent refuses non-cluster clients", host: "{{ hostvars[agent_node].ansible_host | default('') }}", port: "{{ agent_port }}" }
           loop_control:
             label: "{{ item.id }}"
           register: fd_direct
@@ -263,15 +330,23 @@
               detail: "{{ 'all present' if ev_platform_missing | default(vault_namespaces | difference(ev_namespaces)) | length == 0 else 'missing: ' ~ (ev_platform_missing | default(vault_namespaces | difference(ev_namespaces)) | join(', ')) }}"
           identity: "{{ identity_report | default([]) }}"
           front_door: "{{ front_door_report | default([]) }}"
-          seal_chain:
-            - id: seal_key
-              label: Transit key autounseal present
-              status: "{{ 'pass' if ev_seal_key | bool else 'fail' }}"
-              detail: "{{ lab_seal_node }}:{{ seal_transit_mount }}/keys/{{ seal_transit_key }}"
-            - id: seal_token_ttl
-              label: Seal token TTL
-              status: "{{ 'pass' if ev_seal_ttl | int >= seal_token_min_ttl_seconds else 'fail' }}"
-              detail: "{{ ((ev_seal_ttl | int) / 3600) | round(1) }}h remaining (minimum {{ (seal_token_min_ttl_seconds / 3600) | int }}h)"
+          seal_chain: >-
+            {{ [{'id': 'seal_key', 'label': 'Transit key autounseal present',
+                 'status': 'pass' if ev_seal_key | bool else 'fail',
+                 'detail': lab_seal_node ~ ':' ~ seal_transit_mount ~ '/keys/' ~ seal_transit_key}]
+               + ([{'id': 'agent_token', 'label': 'Seal agent holds an autounseal token',
+                    'status': 'pass' if agent_ev.token_ok | bool and ev_seal_ttl | int > 0 else 'fail',
+                    'detail': ((ev_seal_ttl | int) / 60) | round(0) | int ~ ' min left (renewed and re-issued by the agent)'},
+                   {'id': 'rotator', 'label': 'Secret-id rotated within 7 h',
+                    'status': 'pass' if (hostvars[agent_node].rot_age_hours | float) >= 0 and (hostvars[agent_node].rot_age_hours | float) < 7 else 'fail',
+                    'detail': ('last rotation ' ~ hostvars[agent_node].rot_age_hours ~ ' h ago') if (hostvars[agent_node].rot_age_hours | float) >= 0 else 'never rotated'},
+                   {'id': 'no_seal_credential', 'label': 'No seal credential on cluster nodes',
+                    'status': 'pass' if groups['vault'] | map('extract', hostvars, 'node_seal_clean') | select('equalto', false) | list | length == 0 else 'fail',
+                    'detail': 'no seal.env, no VAULT_TOKEN in the vault unit'}]
+                  if seal_via_agent | bool else
+                  [{'id': 'seal_token_ttl', 'label': 'Seal token TTL',
+                    'status': 'pass' if ev_seal_ttl | int >= seal_token_min_ttl_seconds else 'fail',
+                    'detail': ((ev_seal_ttl | int) / 3600) | round(1) ~ 'h remaining (minimum ' ~ (seal_token_min_ttl_seconds / 3600) | int ~ 'h)'}]) }}
 
     - name: Write the non-secret evidence report
       ansible.builtin.copy:

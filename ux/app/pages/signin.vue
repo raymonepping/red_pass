@@ -10,24 +10,28 @@ onMounted(async () => {
 </script>
 
 <template>
-  <main id="main" class="signin-ground">
-    <section class="vg-hero signin-card" aria-labelledby="signin-title">
-      <svg class="signin-mark" viewBox="0 0 24 24" aria-hidden="true">
-        <rect x="3.5" y="3.5" width="17" height="17" rx="4.5" fill="none" stroke="currentColor" stroke-width="1.6" />
-        <path d="M8 15.5V8.5h4.2a2.4 2.4 0 0 1 0 4.8H8m4.6 0 2.9 2.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-      </svg>
-      <p class="eyebrow">red_pass control plane</p>
-      <h1 id="signin-title">Sign in</h1>
-      <p>Your identity comes from the lab directory through Keycloak. What you may do here follows your group: viewers observe, operators restart, administrators manage.</p>
-      <p v-if="error" class="signin-error" role="alert">{{ error }}</p>
-      <p v-else-if="session && session.authRequired && !session.authEnabled" class="signin-error" role="alert">Sign-in is required but identity is not configured on this console yet.</p>
-      <a v-if="!session || session.authEnabled" class="primary-button signin-button" href="/auth/login">Continue with Keycloak</a>
-    </section>
-  </main>
+  <div class="signin-page">
+    <main id="main" class="signin-ground">
+      <section class="vg-hero signin-card" aria-labelledby="signin-title">
+        <svg class="signin-mark" viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="3.5" y="3.5" width="17" height="17" rx="4.5" fill="none" stroke="currentColor" stroke-width="1.6" />
+          <path d="M8 15.5V8.5h4.2a2.4 2.4 0 0 1 0 4.8H8m4.6 0 2.9 2.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+        <p class="eyebrow">red_pass control plane</p>
+        <h1 id="signin-title">Sign in</h1>
+        <p>Your identity comes from the lab directory through Keycloak. What you may do here follows your group: viewers observe, operators restart, administrators manage.</p>
+        <p v-if="error" class="signin-error" role="alert">{{ error }}</p>
+        <p v-else-if="session && session.authRequired && !session.authEnabled" class="signin-error" role="alert">Sign-in is required but identity is not configured on this console yet.</p>
+        <a v-if="!session || session.authEnabled" class="primary-button signin-button" href="/auth/login">Continue with Keycloak</a>
+      </section>
+    </main>
+    <RedPassFooter />
+  </div>
 </template>
 
 <style scoped>
-.signin-ground { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
+.signin-page { display: flex; flex-direction: column; min-height: 100vh; }
+.signin-ground { flex: 1; display: grid; place-items: center; padding: 16px; }
 .signin-card { width: min(440px, 100%); display: grid; gap: 10px; padding: 28px; }
 .signin-card h1 { margin: 0; font-size: 26px; font-weight: 780; letter-spacing: -0.02em; }
 .signin-card p { margin: 0; font-size: 13px; color: var(--vg-text-secondary); }

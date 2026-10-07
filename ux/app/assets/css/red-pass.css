@@ -45,6 +45,7 @@
 
 /* ── Seal chain ─────────────────────────────────────────────────────────── */
 .chain { display: grid; grid-template-columns: minmax(220px, 1fr) 56px minmax(260px, 2fr); align-items: center; gap: 0; }
+.chain:has(> .chain-node + .chain-wire + .chain-node) { grid-template-columns: minmax(200px, 1fr) 40px minmax(200px, 1fr) 40px minmax(240px, 1.6fr); }
 .chain-node, .chain-link {
   display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 10px;
   background: var(--vg-well); border: 1px solid var(--vg-border-subtle);
@@ -278,3 +279,138 @@
   .door-row { grid-template-columns: 1fr; }
   .door-servers { justify-content: flex-start; }
 }
+
+/* ── VM list pane (folded by default) ───────────────────────────────────── */
+.vm-pane { margin-bottom: 20px; overflow: hidden; }
+.vm-pane--attention { border-color: color-mix(in srgb, var(--vg-hue-amber) 38%, transparent); }
+.vm-pane--attention .vm-pane__header { background: color-mix(in srgb, var(--vg-hue-amber) 5%, transparent); }
+
+.vm-pane__header {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; padding: 13px 16px; border: none; background: none; cursor: pointer; text-align: left;
+  font: inherit; color: var(--vg-text-primary);
+  transition: background 0.18s var(--vg-ease-out);
+}
+.vm-pane__header:hover { background: rgba(255, 255, 255, 0.55); }
+
+.vm-pane__title-group { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.vm-pane__title { font-size: 15px; font-weight: 720; letter-spacing: -0.01em; white-space: nowrap; }
+.vm-pane__summary { font-size: 12.5px; color: var(--vg-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vm-pane__summary--warn { color: var(--vg-pending); }
+
+.vm-pane__chevron {
+  width: 16px; height: 16px; flex-shrink: 0; color: var(--vg-text-muted);
+  transition: transform 0.18s var(--vg-ease-out);
+}
+.vm-pane__chevron--open { transform: rotate(180deg); }
+
+/* body padding mirrors existing .panel */
+#vm-pane-body { padding: 0 16px 16px; }
+#vm-pane-body > .toolbar { margin-top: 4px; }
+
+/* ── Footer ─────────────────────────────────────────────────────────────── */
+.rp-footer { margin-top: auto; }
+
+.rp-footer__rail {
+  height: 2px;
+  /* aluminium rule with a blue glint at centre — uses action-bright hue */
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--vg-border-strong) 18%,
+    var(--vg-action-bright) 50%,
+    var(--vg-border-strong) 82%,
+    transparent
+  );
+  opacity: 0.55;
+}
+
+.rp-footer__inner {
+  max-width: 84rem; margin: 0 auto; padding: 0 24px;
+}
+
+.rp-footer__key-row {
+  border-bottom: 1px solid var(--vg-border-subtle); padding-top: 2px; padding-bottom: 4px;
+}
+
+.rp-footer__key-toggle {
+  display: flex; align-items: center; gap: 6px; padding: 8px 0;
+  font: inherit; font-size: 0.8rem; font-weight: 600; color: var(--vg-text-muted);
+  background: none; border: none; cursor: pointer;
+  transition: color 0.18s var(--vg-ease-out);
+}
+.rp-footer__key-toggle:hover { color: var(--vg-text-secondary); }
+
+.rp-footer__chevron {
+  width: 10px; height: 10px; flex-shrink: 0;
+  transition: transform 0.15s;
+}
+.rp-footer__chevron--open { transform: rotate(90deg); }
+
+.rp-footer__key-items {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 20px;
+  padding-bottom: 10px; font-size: 0.8rem; color: var(--vg-text-muted);
+}
+.rp-footer__key-item { display: inline-flex; align-items: center; gap: 7px; }
+.rp-footer__swatch {
+  width: 10px; height: 10px; flex-shrink: 0; border-radius: 3px;
+}
+
+.rp-footer__body {
+  display: flex; flex-direction: column; gap: 10px; padding-top: 16px; padding-bottom: 24px;
+}
+.rp-footer__tagline {
+  text-align: center; font-size: 0.9rem; font-style: italic; color: var(--vg-text-muted); margin: 0;
+}
+.rp-footer__bottom {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+}
+@media (min-width: 640px) {
+  .rp-footer__bottom { flex-direction: row; justify-content: space-between; }
+}
+.rp-footer__copy {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+  font-size: 0.8rem; color: var(--vg-text-muted); margin: 0; gap: 0;
+}
+.rp-footer__socials { display: flex; align-items: center; gap: 10px; }
+.rp-footer__social-link {
+  display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px;
+  color: var(--vg-text-muted); transition: background 0.18s var(--vg-ease-out), color 0.18s;
+}
+.rp-footer__social-link:hover { background: rgba(255, 255, 255, 0.7); color: var(--vg-action-bright); }
+.rp-footer__social-link svg { width: 14px; height: 14px; }
+
+/* The signature clearing sweep — reduced-motion safe */
+.sig-name {
+  position: relative; display: inline-block;
+  border-radius: 3px; cursor: default;
+  transition: color 180ms var(--vg-ease-out);
+}
+.sig-name:hover,
+.sig-name:focus-visible { outline: none; color: var(--vg-action-bright); }
+.sig-name::after {
+  content: attr(data-name);
+  position: absolute; inset: 0;
+  color: transparent;
+  background: linear-gradient(100deg, transparent 42%, rgb(255 255 255 / 0.95) 50%, transparent 58%);
+  background-size: 260% 100%; background-position: 130% 0;
+  -webkit-background-clip: text; background-clip: text;
+  opacity: 0; pointer-events: none;
+}
+.sig-name:hover::after,
+.sig-name:focus-visible::after { animation: sig-clear 0.9s var(--vg-ease-out); }
+@keyframes sig-clear {
+  0%            { background-position: 130% 0; opacity: 0; }
+  12%, 88%      { opacity: 1; }
+  100%          { background-position: -30% 0; opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sig-name::after { display: none; }
+}
+
+.footer-word {
+  display: inline-flex; align-items: center; cursor: default;
+  transition: color 180ms, transform 180ms var(--vg-ease-out);
+}
+.footer-word:hover { color: var(--vg-text-secondary); transform: translateY(-1px); }
+.footer-word i { margin: 0 6px; font-style: normal; color: var(--vg-border-strong); }

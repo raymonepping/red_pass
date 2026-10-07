@@ -67,6 +67,7 @@ const title = computed(() => route.path.startsWith('/instances/') ? decodeURICom
       <main id="main" class="vg-content">
         <slot />
       </main>
+      <RedPassFooter />
     </div>
   </div>
 </template>

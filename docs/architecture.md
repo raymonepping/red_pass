@@ -53,6 +53,11 @@ flowchart TB
   op(["Operator<br/>.secrets/seal-init.json"])
   subgraph seal["red-vault-s · Shamir 1/1"]
     tr["transit/keys/autounseal<br/>policy autounseal"]
+    ar["auth/approle<br/>red-pass-seal-autounseal · red-pass-seal-rotator<br/>(CIDR-bound to red-agent-1)"]
+  end
+  subgraph agent["red-agent-1"]
+    va["vault-agent<br/>auto_auth approle · api_proxy force token<br/>mTLS listener :8100"]
+    rot["seal-rotator.timer (6 h)<br/>new secret-id, destroy old"]
   end
   subgraph cluster["Raft cluster · seal &quot;transit&quot; · recovery keys 3/2"]
     v1["red-vault-1"]
@@ -60,27 +65,34 @@ flowchart TB
     v3["red-vault-3"]
   end
   op -- "make unseal (1 key)" --> seal
-  tr -- "encrypt / decrypt<br/>periodic 720h orphan token" --> v1 & v2 & v3
+  va -- "AppRole login · token renewed / re-issued" --> ar
+  rot -- "rotator AppRole" --> ar
+  v1 & v2 & v3 -- "mTLS (node cert) · no token" --> va
+  va -- "encrypt / decrypt with its own token" --> tr
 ```
 
-1. `red-vault-s` is a standalone single-node Raft Vault with Shamir 1/1.
-   `bootstrap.yml` initialises it once, unseals it, enables `transit/`,
-   creates the non-exportable key `autounseal`, writes the policy
-   `autounseal` (encrypt/decrypt on that key, lookup/renew-self) and creates a
-   periodic (720h) orphan token with only that policy.
-2. The token reaches each cluster node as `VAULT_TOKEN` in
-   `/etc/vault.d/seal.env` (root 0600, systemd `EnvironmentFile`). It is
-   never in `vault.hcl`, inventory, or `extra_vars`. Vault renews it itself;
-   every `make bootstrap` also renews it and `validate.yml` fails if its TTL
-   drops below 72h.
-3. Cluster nodes run `seal "transit"` against `https://red-vault-s:8200`
-   with the lab CA. They are initialised once with **recovery** keys
-   (3 shares / 2), which are never needed for unsealing.
-4. `ExecStartPre=/usr/local/bin/vault-wait-seal` checks that the seal Vault is
-   active before Vault starts. It fails fast and systemd retries every 10s
-   (`Restart=always`), so a sealed seal Vault neither blocks boot nor
-   crash-loops Vault, and the node unseals itself seconds after `make unseal`.
-5. Only one seal stanza is configured: Seal HA is not part of the licence.
+1. `red-vault-s` is a standalone single-node Raft Vault with Shamir 1/1,
+   holding the non-exportable Transit key `autounseal` (policy `autounseal`:
+   encrypt/decrypt that key, lookup/renew self).
+2. **Seal agent** (`agent.yml`, role `seal_agent`): AppRole
+   `red-pass-seal-autounseal` (token 1 h / max 24 h, secret-id 24 h, both
+   CIDR-bound to red-agent-1) logs Vault Agent in; `api_proxy` forces that
+   token on every proxied call. The listener requires a lab-CA client
+   certificate and firewalld admits only the three cluster addresses.
+3. `seal-rotator.timer` uses a second AppRole that may only mint and destroy
+   secret-ids of the first: every 6 h a new secret-id replaces the file and
+   all others are destroyed. The agent uses it at its next login.
+4. Cluster nodes: `seal "transit"` points at the agent with the node's own
+   client certificate, `disable_renewal`, and a placeholder token the agent
+   overrides. No `seal.env`, no `VAULT_TOKEN`. Recovery keys (3/2) are never
+   needed for unsealing.
+5. `vault-wait-seal` (ExecStartPre) checks the agent over mTLS: it answers 200
+   only when it holds a token and the seal Vault is unsealed. It fails fast;
+   systemd retries every 10 s, so neither boot nor Vault crash-loops.
+6. Migration on a running lab: the agent is proven from a cluster node first
+   (`.build/seal-agent.json` marker), then nodes switch one at a time, each
+   waiting to be unsealed again; finally the old 720 h token is revoked.
+7. Only one seal stanza is configured: Seal HA is not part of the licence.
 
 Peer names resolve through `/etc/hosts`. Multipass vendor-data sets
 `manage_etc_hosts: true`, so cloud-init rewrites `/etc/hosts` on every boot;

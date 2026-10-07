@@ -41,7 +41,7 @@ const record = (value: unknown): UnknownRecord => value && typeof value === 'obj
 const text = (value: unknown, max = 200): string | null => typeof value === 'string' ? value.slice(0, max) : null
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/
 const isoOrNull = (value: unknown): string | null => typeof value === 'string' && ISO.test(value) ? value : null
-const ROLES: LabRole[] = ['seal', 'leader', 'follower', 'ux', 'identity', 'proxy']
+const ROLES: LabRole[] = ['seal', 'leader', 'follower', 'ux', 'identity', 'proxy', 'agent']
 const STATUSES: EvidenceStatus[] = ['pass', 'warn', 'fail', 'unknown']
 
 async function readJson(path: string): Promise<unknown | null> {

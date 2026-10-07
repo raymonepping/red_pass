@@ -108,6 +108,8 @@
         ownca_path: "{{ tls_dir }}/ca.crt"
         ownca_privatekey_path: "{{ tls_dir }}/ca.key"
         ownca_not_after: "+825d"
+        # Tolerate guest clock skew: a fresh cert is never "not yet valid".
+        ownca_not_before: "-1h"
         mode: "0644"
         force: true
 

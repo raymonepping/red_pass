@@ -159,8 +159,10 @@
   no_log: true
   when: seal_token_file.stat.exists
 
-- name: Create the periodic orphan seal token
-  when: not seal_token_file.stat.exists or seal_token_check.status == 403
+- name: Create the periodic orphan seal token (token mode only)
+  when:
+    - not seal_via_agent | bool
+    - not seal_token_file.stat.exists or seal_token_check.status == 403
   no_log: true
   block:
     - name: Create the seal token ({{ seal_token_period }} period, policy {{ seal_policy_name }})

@@ -33,9 +33,18 @@
   roles:
     - { role: vault_configure, tags: [configure] }
 
-- name: Configure the transit-sealed cluster nodes
+- name: Configure the transit-sealed cluster nodes (one at a time)
   hosts: vault
   become: true
   gather_facts: false
+  serial: 1
   roles:
     - { role: vault_configure, tags: [configure] }
+  post_tasks:
+    - name: Apply any restart now
+      ansible.builtin.meta: flush_handlers
+      tags: [configure]
+
+    - name: Wait until this node is unsealed again
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/wait-unsealed.yml"
+      tags: [configure]

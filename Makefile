@@ -112,3 +112,11 @@ proxy: ## HAProxy front door on red-proxy-1
 
 proxy-failover-test: ## Stop Vault on the active node; the front door must follow the new leader
 	$(RUN) proxy-failover-test
+
+.PHONY: agent seal-rotate
+agent: ## Seal agent on red-agent-1 (AppRole + Vault Agent); switches the cluster to it
+	$(RUN) agent
+
+seal-rotate: ## Rotate the seal agent's secret-id now (normally every 6h by timer)
+	multipass exec red-agent-1 -- sudo systemctl start seal-rotator.service
+	multipass exec red-agent-1 -- sudo journalctl -u seal-rotator -n 3 --no-pager -o cat

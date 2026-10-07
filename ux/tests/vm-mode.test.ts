@@ -32,6 +32,12 @@ describe('service-node evidence', () => {
   const values = parseProbe('release=Red Hat Enterprise Linux release 9.8 (Plow)\nservice_unit=red-ux\nservice_active=active\nservice_http=200')
   it('passes an active service answering 200', () => expect(serviceEvidence(values).every(item => item.status === 'pass')).toBe(true))
   it('fails a service that does not answer', () => expect(serviceEvidence({ ...values, service_http: '000' }).some(item => item.status === 'fail')).toBe(true))
+  it('checks every unit of a multi-unit service', () => {
+    const multi = serviceEvidence({ service_unit: 'keycloak,openldap', service_active: 'active,active', service_http: '200' })
+    expect(multi.map(item => item.id)).toEqual(['service-unit-keycloak', 'service-unit-openldap', 'service-https'])
+    expect(multi.every(item => item.status === 'pass')).toBe(true)
+    expect(serviceEvidence({ service_unit: 'keycloak,openldap', service_active: 'active,failed', service_http: '200' })[1]?.status).toBe('fail')
+  })
   it('never treats a service VM as a Vault node', () => {
     expect(isVaultRole('ux')).toBe(false)
     expect(isVaultRole('seal')).toBe(true)

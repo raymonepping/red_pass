@@ -122,6 +122,16 @@ export function sealChainFrom(built: BuiltInstance[]): SealChain | null {
     : sealFacts.sealed
       ? { status: 'fail' as const, sealed: true, detail: 'Sealed — run make unseal' }
       : { status: 'pass' as const, sealed: false, detail: 'Unsealed · Transit key serving' }
+  const agentNode = built.find(item => item.summary.labRole === 'agent')
+  const agentChecks = agentNode?.checks?.vault ?? []
+  const agent = !agentNode
+    ? null
+    : !agentNode.checks?.reachable
+        ? { node: agentNode.summary.name, status: 'unknown' as const, detail: 'No verified answer' }
+        : agentChecks.every(item => item.status === 'pass')
+          ? { node: agentNode.summary.name, status: 'pass' as const, detail: 'AppRole token held · mTLS proxy serving' }
+          : { node: agentNode.summary.name, status: 'fail' as const, detail: agentChecks.filter(item => item.status !== 'pass').map(item => item.label).join(', ') }
+  const via = agent ? 'via the seal agent' : 'via transit'
   const links = built
     .filter(item => item.summary.labRole === 'leader' || item.summary.labRole === 'follower')
     .sort((a, b) => a.summary.name.localeCompare(b.summary.name))
@@ -131,9 +141,9 @@ export function sealChainFrom(built: BuiltInstance[]): SealChain | null {
         return { node: summary.name, sealType: null, sealed: null, status: 'unknown' as const, detail: sealVault.sealed ? 'Waiting for the seal Vault' : summary.state.toLowerCase() === 'running' ? 'No verified answer' : summary.state }
       }
       const ok = facts.sealType === 'transit' && facts.sealed === false
-      return { node: summary.name, sealType: facts.sealType, sealed: facts.sealed, status: ok ? 'pass' as const : 'fail' as const, detail: ok ? 'Auto-unsealed via transit' : facts.sealed ? 'Sealed' : `Seal type ${facts.sealType ?? 'unknown'}` }
+      return { node: summary.name, sealType: facts.sealType, sealed: facts.sealed, status: ok ? 'pass' as const : 'fail' as const, detail: ok ? `Auto-unsealed ${via}` : facts.sealed ? 'Sealed' : `Seal type ${facts.sealType ?? 'unknown'}` }
     })
-  return { sealNode: seal.summary.name, sealVault, links }
+  return { sealNode: seal.summary.name, sealVault, agent, links }
 }
 
 /** Public entry points, in the order an operator reads them. */

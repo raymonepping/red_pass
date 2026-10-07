@@ -4,7 +4,7 @@ export type EvidenceSource = 'multipass' | 'ansible' | 'rhel' | 'vault'
 /** The fourth posture slot is `vault` on Vault nodes and `service` on service VMs. */
 export type PostureKind = 'provisioned' | 'rhel' | 'ansible' | 'vault' | 'service'
 /** Role of a red_pass node as recorded by Ansible; null for any other VM. */
-export type LabRole = 'seal' | 'leader' | 'follower' | 'ux' | 'identity' | 'proxy'
+export type LabRole = 'seal' | 'leader' | 'follower' | 'ux' | 'identity' | 'proxy' | 'agent'
 export type VaultRole = Extract<LabRole, 'seal' | 'leader' | 'follower'>
 export type LabMode = 'host' | 'vm'
 
@@ -67,6 +67,8 @@ export interface SealLink {
 export interface SealChain {
   sealNode: string
   sealVault: { status: EvidenceStatus, sealed: boolean | null, detail: string }
+  /** The seal agent between the seal Vault and the cluster (prompt 09), if any. */
+  agent: { node: string, status: EvidenceStatus, detail: string } | null
   links: SealLink[]
 }
 

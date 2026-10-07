@@ -10,6 +10,13 @@
   become: false
   run_once: true
 
+- name: Remove the seal token from the node (agent mode holds none)
+  ansible.builtin.file:
+    path: "{{ vault_seal_env_file }}"
+    state: absent
+  when: seal_via_agent | bool
+  notify: Restart vault
+
 - name: Write the seal token environment file (contents suppressed)
   ansible.builtin.copy:
     content: "VAULT_TOKEN={{ lookup('file', seal_token_path) | trim }}\n"
@@ -19,7 +26,7 @@
     mode: "0600"
   no_log: true
   diff: false
-  when: vault_seal_token_file.stat.exists
+  when: vault_seal_token_file.stat.exists and not seal_via_agent | bool
   notify: Restart vault
 
 - name: Check for the node seal environment file

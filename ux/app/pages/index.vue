@@ -8,14 +8,12 @@ const { plane, checking, failed, refresh } = usePlane()
 const selectedEvidence = ref<PostureCategory | null>(null)
 const purgeOpen = ref(false)
 const purgePending = ref(false)
-const filter = ref<'instances' | 'trash'>('instances')
 const { selectedAction, selectedInstance, pending, toast, requestAction, closeAction, confirmAction } = useOperations(() => refresh())
 
 const ordered = computed(() => [...(plane.value?.instances || [])].sort((a, b) => {
   const rank = (role: string | null) => role === 'seal' ? 0 : isVaultRole(role) ? 1 : role ? 2 : 3
   return rank(a.labRole) - rank(b.labRole) || a.name.localeCompare(b.name)
 }))
-const visible = computed(() => ordered.value.filter(item => filter.value === 'trash' ? item.deleted : !item.deleted))
 const observeOnly = computed(() => plane.value?.mode === 'vm')
 const { can } = useAuth()
 const canAdmin = can('admin')
@@ -91,21 +89,18 @@ async function purge(confirmation: string) {
       <SealChainPanel :chain="plane.sealChain" :checking="checking" />
       <FrontDoorPanel v-if="plane.frontDoor" :door="plane.frontDoor" />
 
-      <div v-if="!observeOnly" class="toolbar">
-        <div class="segmented" role="tablist" aria-label="Instance list">
-          <button type="button" role="tab" :aria-selected="filter === 'instances'" :class="{ active: filter === 'instances' }" @click="filter = 'instances'">Instances <span>{{ plane.summary.total - plane.summary.deleted }}</span></button>
-          <button type="button" role="tab" :aria-selected="filter === 'trash'" :class="{ active: filter === 'trash' }" @click="filter = 'trash'">Trash <span>{{ plane.summary.deleted }}</span></button>
-        </div>
-        <button v-if="filter === 'trash' && plane.summary.deleted && canAdmin" class="text-danger" type="button" @click="purgeOpen = true">Purge trash…</button>
-      </div>
-
-      <div v-if="visible.length" class="instance-grid">
-        <InstanceCard v-for="instance in visible" :key="instance.name" :instance="instance" :busy="pending" :observe-only="observeOnly" @evidence="selectedEvidence = $event" @action="requestAction" />
-      </div>
-      <div v-else class="empty vg-glass">
-        <h2>{{ filter === 'trash' ? 'Trash is empty' : 'No instances' }}</h2>
-        <p>{{ filter === 'trash' ? 'Deleted instances stay recoverable here until purged.' : 'Run make lab to launch the red_pass VMs, then refresh.' }}</p>
-      </div>
+      <VmListPane
+        :instances="ordered"
+        :total="plane.summary.total"
+        :running="plane.summary.running"
+        :deleted="plane.summary.deleted"
+        :observe-only="observeOnly"
+        :checking="checking"
+        :can-admin="canAdmin"
+        @evidence="selectedEvidence = $event"
+        @action="requestAction"
+        @purge="purgeOpen = true"
+      />
     </template>
 
     <EvidencePanel :category="selectedEvidence" @close="selectedEvidence = null" />

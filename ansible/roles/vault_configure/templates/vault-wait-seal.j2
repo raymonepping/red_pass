@@ -6,9 +6,18 @@
 # Vault never blocks boot and never crash-loops Vault itself.
 set -u
 for attempt in 1 2 3; do
+{% if seal_via_agent | bool %}
+  # Through the seal agent (mTLS with this node's certificate): answers 200
+  # only when the agent holds a token and the seal Vault is unsealed.
+  if curl -fsS -o /dev/null --max-time 3 \
+    --cacert {{ vault_tls_dir }}/ca.crt \
+    --cert {{ vault_tls_dir }}/server.crt --key {{ vault_tls_dir }}/server.key \
+    "https://{{ hostvars[agent_node].ansible_host }}:{{ agent_port }}/v1/sys/health"; then
+{% else %}
   if curl -fsS -o /dev/null --max-time 3 \
     --cacert {{ vault_tls_dir }}/ca.crt \
     "https://{{ lab_seal_node }}:{{ vault_api_port }}/v1/sys/health"; then
+{% endif %}
     exit 0
   fi
   sleep 2

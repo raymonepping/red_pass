@@ -7,6 +7,20 @@ license_path  = "{{ vault_license_dest }}"
 log_level     = "info"
 
 {% if inventory_hostname in groups['vault'] %}
+{% if seal_via_agent | bool %}
+# Auto-unseal through the seal agent on {{ agent_node }}: an mTLS API proxy
+# that injects its own AppRole token. This node holds no seal credential.
+seal "transit" {
+  address         = "https://{{ hostvars[agent_node].ansible_host }}:{{ agent_port }}"
+  mount_path      = "{{ seal_transit_mount }}/"
+  key_name        = "{{ seal_transit_key }}"
+  tls_ca_cert     = "{{ vault_tls_dir }}/ca.crt"
+  tls_client_cert = "{{ vault_tls_dir }}/server.crt"
+  tls_client_key  = "{{ vault_tls_dir }}/server.key"
+  token           = "forced-by-seal-agent"
+  disable_renewal = "true"
+}
+{% else %}
 # Auto-unseal through the seal Vault's Transit engine. The token is NOT in
 # this file: systemd passes VAULT_TOKEN from {{ vault_seal_env_file }}.
 seal "transit" {
@@ -15,6 +29,7 @@ seal "transit" {
   key_name    = "{{ seal_transit_key }}"
   tls_ca_cert = "{{ vault_tls_dir }}/ca.crt"
 }
+{% endif %}
 
 {% endif %}
 storage "raft" {

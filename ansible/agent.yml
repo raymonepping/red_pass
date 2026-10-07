@@ -1,0 +1,122 @@
+---
+# agent.yml — the seal agent on red-agent-1 (prompt 09):
+#   1. AppRole on red-vault-s (agent role + rotator role)
+#   2. Vault Agent (mTLS API proxy, forced token) + secret-id rotator
+#   3. prove it from a cluster node, write the marker
+#   4. switch the cluster nodes to the agent one at a time
+#   5. revoke the old long-lived seal token
+#
+#   make agent
+
+- name: Build the in-memory inventory
+  ansible.builtin.import_playbook: discover.yml
+
+- name: What the agent already holds
+  hosts: agent
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Check the agent's secret-id files
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop: ["{{ agent_state_dir }}/secret-id", "{{ agent_conf_dir }}/approle/rotator-secret-id"]
+      register: sa_files
+
+    - name: Remember them
+      ansible.builtin.set_fact:
+        sa_has_secret_id: "{{ sa_files.results[0].stat.exists }}"
+        sa_has_rotator_secret: "{{ sa_files.results[1].stat.exists }}"
+
+- name: AppRole on the seal Vault
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Configure the seal Vault side
+      ansible.builtin.include_role:
+        name: seal_agent
+        tasks_from: seal_vault.yml
+
+- name: Vault Agent and rotator
+  hosts: agent
+  become: true
+  gather_facts: false
+  roles:
+    - seal_agent
+
+- name: Prove the agent from a cluster node (mTLS, forced token)
+  hosts: vault
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Look up the agent's token through the proxy with the node's client certificate
+      run_once: true
+      ansible.builtin.uri:
+        url: "https://{{ hostvars[agent_node].ansible_host }}:{{ agent_port }}/v1/auth/token/lookup-self"
+        ca_path: "{{ vault_tls_dir }}/ca.crt"
+        client_cert: "{{ vault_tls_dir }}/server.crt"
+        client_key: "{{ vault_tls_dir }}/server.key"
+      check_mode: false
+      register: sa_proof
+      retries: 10
+      delay: 3
+      until: sa_proof.status == 200
+      no_log: true
+
+    - name: Require the autounseal policy and a live TTL
+      run_once: true
+      ansible.builtin.assert:
+        that:
+          - seal_policy_name in sa_proof.json.data.policies
+          - sa_proof.json.data.ttl | int > 0
+        fail_msg: The agent does not hold a valid autounseal token.
+        quiet: true
+
+    - name: Write the marker (non-secret)
+      run_once: true
+      ansible.builtin.copy:
+        content: "{{ {'ready': true, 'agent': agent_node, 'address': hostvars[agent_node].ansible_host ~ ':' ~ agent_port} | to_nice_json }}\n"
+        dest: "{{ seal_agent_marker }}"
+        mode: "0644"
+      delegate_to: localhost
+      become: false
+
+- name: Switch the cluster to the agent, one node at a time
+  hosts: vault
+  become: true
+  gather_facts: false
+  serial: 1
+  roles:
+    - vault_configure
+  post_tasks:
+    - name: Apply the restart now
+      ansible.builtin.meta: flush_handlers
+
+    - name: Wait until this node is unsealed again
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/wait-unsealed.yml"
+
+- name: Retire the long-lived seal token
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Check for the old token
+      ansible.builtin.stat:
+        path: "{{ seal_token_path }}"
+      register: sa_old
+
+    - name: Revoke it on the seal Vault
+      ansible.builtin.uri:
+        url: "https://{{ hostvars[lab_seal_node].ansible_host }}:{{ vault_api_port }}/v1/auth/token/revoke-self"
+        method: POST
+        ca_path: "{{ vault_ca_cert }}"
+        headers: { X-Vault-Token: "{{ lookup('file', seal_token_path) | trim }}" }
+        status_code: [200, 204, 403]
+      changed_when: true
+      no_log: true
+      when: sa_old.stat.exists
+
+    - name: Delete the controller copy
+      ansible.builtin.file:
+        path: "{{ seal_token_path }}"
+        state: absent

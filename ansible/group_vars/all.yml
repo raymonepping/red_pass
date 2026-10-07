@@ -14,6 +14,7 @@ lab_service_nodes:
   red-identity-1: { group: identity, role: identity, cpus: 2, memory: 4G, disk: 15G }
   # dnf on full RHEL repo metadata needs ~2G: 1G gets OOM-killed.
   red-proxy-1: { group: proxy, role: proxy, cpus: 1, memory: 2G, disk: 10G }
+  red-agent-1: { group: agent, role: agent, cpus: 1, memory: 2G, disk: 10G }
 lab_vault_nodes: "{{ lab_cluster_nodes + [lab_seal_node] }}"
 lab_nodes: "{{ lab_vault_nodes + (lab_service_nodes | list) }}"
 vault_leader: red-vault-1
@@ -103,7 +104,9 @@ probe_key: "{{ secrets_dir }}/ux/probe_ed25519"
 lab_service_probes:
   ux: { units: [red-ux], url: "https://127.0.0.1:3443/api/health" }
   identity: { units: [keycloak, openldap], url: "https://127.0.0.1:9000/health/ready" }
-  proxy: { units: [haproxy], url: "https://127.0.0.1:8200/v1/sys/health" }
+  # End to end through the front door itself (HAProxy binds only its address).
+  proxy: { units: [haproxy], url: "https://{{ ansible_host }}:8200/v1/sys/health" }
+  agent: { units: [vault-agent, seal-rotator.timer], url: "http://127.0.0.1:8101/agent/v1/metrics" }
 
 # ── Control-plane UI in red-ux-1 (VM mode) ───────────────────────────────────
 ux_user: redux
@@ -176,3 +179,20 @@ proxy_ports:
   stats: 8404
 proxy_dir: /etc/haproxy/red-pass
 proxy_kv_path: red-pass/proxy
+
+# ── Seal agent on red-agent-1 (prompt 09) ────────────────────────────────────
+agent_node: red-agent-1
+agent_user: vaultagent
+agent_conf_dir: /etc/vault-agent
+agent_state_dir: /var/lib/vault-agent
+agent_port: 8100
+agent_metrics_port: 8101
+seal_approle: red-pass-seal-autounseal
+seal_rotator_approle: red-pass-seal-rotator
+seal_rotator_policy: seal-rotator
+seal_secret_id_ttl: 24h
+seal_rotate_every: 6h
+# Written by agent.yml once the agent is proven from a cluster node; from then
+# on cluster nodes reach the seal through the agent and hold no token.
+seal_agent_marker: "{{ build_dir }}/seal-agent.json"
+seal_via_agent: "{{ seal_agent_marker is file }}"

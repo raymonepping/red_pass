@@ -106,10 +106,12 @@ export function vaultEvidence(role: VaultRole, values: Record<string, string>): 
 
 /** Service VMs: is the node's own service up and answering over TLS? */
 export function serviceEvidence(values: Record<string, string>): EvidenceCheck[] {
-  const unit = values.service_unit || 'service'
+  // One row per unit: the probe reports `a,b` / `active,active`.
+  const units = (values.service_unit || 'service').split(',').filter(Boolean)
+  const states = (values.service_active || '').split(',')
   return [
-    check('service-unit', `${unit} service`, values.service_active === 'active' ? 'pass' : 'fail', 'rhel', values.service_active || 'inactive'),
-    check('service-https', 'HTTPS health', values.service_http === '200' ? 'pass' : 'fail', 'rhel', values.service_http ? `HTTP ${values.service_http} over verified TLS` : 'No answer'),
+    ...units.map((unit, index) => check(`service-unit-${unit}`, `${unit} service`, states[index] === 'active' ? 'pass' : 'fail', 'rhel', states[index] || 'inactive')),
+    check('service-https', 'HTTPS health', values.service_http === '200' ? 'pass' : 'fail', 'rhel', values.service_http && values.service_http !== '000' ? `HTTP ${values.service_http} over verified TLS` : 'No answer'),
   ]
 }
 

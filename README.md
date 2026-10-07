@@ -14,10 +14,11 @@ make lab
   2 converge    RHEL (RHSM, firewalld, SELinux, swap), Vault binary, TLS, licence, config
   3 bootstrap   seal Vault → transit token → cluster init → auto-unseal → platform token
   4 platform    Enterprise namespaces + KV v2 / Transit / PKI mounts via the Vault API
-  5 proxy       HAProxy front door on red-proxy-1 (TLS in, verified TLS out)
-  6 identity    OpenLDAP + Keycloak → Vault auth/oidc, auth/jwt, auth/ldap + external groups
-  7 ux          deploy the console to red-ux-1
-  8 validate    read-only readiness contract (people, front door) → .build/validation.json
+  5 agent       seal agent on red-agent-1; cluster switched to it one node at a time
+  6 proxy       HAProxy front door on red-proxy-1 (TLS in, verified TLS out)
+  7 identity    OpenLDAP + Keycloak → Vault auth/oidc, auth/jwt, auth/ldap + external groups
+  8 ux          deploy the console to red-ux-1
+  9 validate    read-only readiness contract (people, front door) → .build/validation.json
 ```
 
 ## Topology
@@ -31,9 +32,12 @@ make lab
 | `red-ux-1` | control-plane UI (observe-only VM mode) | 1 CPU · 2G · 10G | — |
 | `red-identity-1` | OpenLDAP + Keycloak (Podman Quadlet) | 2 CPU · 4G · 15G | — |
 | `red-proxy-1` | HAProxy front door | 1 CPU · 2G · 10G | — |
+| `red-agent-1` | seal agent: Vault Agent (AppRole) + secret-id rotator | 1 CPU · 2G · 10G | — |
 
-The operator only ever unseals `red-vault-s` (one key). The cluster nodes hold
-a periodic, narrowly scoped Transit token and unseal themselves. See
+The operator only ever unseals `red-vault-s` (one key). The cluster nodes
+reach its Transit key through the **seal agent** on `red-agent-1` — an mTLS
+API proxy that injects its own AppRole token — so they hold **no seal
+credential at all**. See
 [docs/architecture.md](docs/architecture.md#the-seal-chain).
 
 ## Prerequisites
@@ -95,6 +99,7 @@ vault namespace list
 | `make identity-show-user PERSON=<uid>` | Print one lab password (explicit, lab only) |
 | `make ui-start-auth` | Host console with Keycloak sign-in and role gating |
 | `make proxy` / `proxy-failover-test` | Front door on red-proxy-1 / prove leader failover through it |
+| `make agent` / `seal-rotate` | Seal agent on red-agent-1 / rotate its secret-id now |
 
 ## Secret boundary
 
@@ -104,7 +109,7 @@ vault namespace list
 | SSH identity + known_hosts | `.secrets/ansible/` | 0600 |
 | Lab CA + node keys | `.secrets/tls/` | 0600 keys |
 | Seal Vault unseal key + root token | `.secrets/seal-init.json` | 0600 |
-| Transit seal token | `.secrets/seal-token`; on nodes `/etc/vault.d/seal.env` (root 0600) | 0600 |
+| Seal agent AppRole | role-ids + rotator secret-id `/etc/vault-agent/approle/`, rotating secret-id `/var/lib/vault-agent/secret-id` (on red-agent-1 only) | 0600/0640 |
 | Cluster recovery keys + root token | `.secrets/vault-init.json` | 0600 |
 | Platform-admin token | `.secrets/platform-token` | 0600 |
 
