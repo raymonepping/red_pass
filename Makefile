@@ -29,7 +29,7 @@ bootstrap: ## Seal Vault, cluster init (recovery keys), auto-unseal, platform to
 unseal: ## Unseal red-vault-s (one key); the cluster auto-unseals
 	$(RUN) unseal
 
-.PHONY: platform platform-check validate lab check-mode status digest destroy rhel-unregister multi-pass-start
+.PHONY: platform platform-check validate lab check-mode status digest destroy rhel-unregister multi-pass-start down
 platform: ## Create missing namespaces/mounts through the Vault API
 	$(RUN) platform
 
@@ -64,6 +64,9 @@ destroy: ## Delete + purge ONLY the red_pass VMs (confirmation required)
 
 rhel-unregister: ## Unregister guests from RHSM (CONFIRM_RHSM_UNREGISTER=yes)
 	$(RUN) rhel-unregister
+
+down: ## Stop (never delete) the red_pass VMs, seal Vault last
+	./scripts/down.sh
 
 multi-pass-start: ## Start multi_pass's vault-1..3 again (start only)
 	multipass start vault-1 vault-2 vault-3
