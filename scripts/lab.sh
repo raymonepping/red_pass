@@ -29,6 +29,8 @@ has_node red-identity-1 && PHASES+=(identity)
 # The console deploys before validation (so its firewall is final when the
 # front-door checks run); it gets the final evidence after the stamp.
 has_node red-ux-1 && PHASES+=(ux)
+# Secrets engines + the console's read-only token for the Engines page.
+PHASES+=(engines)
 PHASES+=(validate)
 
 for index in "${!PHASES[@]}"; do

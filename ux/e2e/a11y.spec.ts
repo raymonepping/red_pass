@@ -5,7 +5,7 @@ import { test, expect, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import { signInIfRequired } from './helpers'
 
-const ROUTES = ['/', '/machines', '/front-door', '/instances/red-vault-1', '/instances/red-vault-s']
+const ROUTES = ['/', '/engines', '/machines', '/front-door', '/instances/red-vault-1', '/instances/red-vault-s']
 const VIEWPORTS = [
   { name: 'desktop', width: 1440, height: 900 },
   { name: 'phone', width: 390, height: 844 },
@@ -15,8 +15,10 @@ const SHOTS = process.env.RED_PASS_SHOTS_DIR
 // The fast list renders first; navigate and wait for the deep posture response.
 async function open(page: Page, route: string) {
   const deep = page.waitForResponse(response => response.url().endsWith('/api/instances') && response.ok(), { timeout: 60_000 })
+  const engines = route === '/engines' ? page.waitForResponse(response => response.url().endsWith('/api/engines') && response.ok(), { timeout: 60_000 }) : null
   await page.goto(route)
   await deep
+  await engines
   await page.waitForSelector('.vg-hero')
   await page.waitForTimeout(400)
 }

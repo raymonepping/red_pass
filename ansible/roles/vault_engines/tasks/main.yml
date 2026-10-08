@@ -1,0 +1,180 @@
+---
+# Secrets engines in the engines namespace through the HTTP API with the
+# scoped platform token. Mounts what is missing, never retypes or deletes;
+# each engine succeeds or fails on its own. In --check mode it reports what
+# it would mount.
+
+- name: Address the cluster
+  ansible.builtin.set_fact:
+    engines_addr: "https://{{ hostvars[vault_leader].ansible_host }}:{{ vault_api_port }}"
+    engines_now: "{{ now(utc=true).strftime('%Y-%m-%dT%H:%M:%SZ') }}"
+
+- name: Read the licence, namespaces and mounts with the platform token
+  module_defaults:
+    ansible.builtin.uri:
+      ca_path: "{{ vault_ca_cert }}"
+  no_log: true
+  block:
+    - name: Read the licence status
+      ansible.builtin.uri:
+        url: "{{ engines_addr }}/v1/sys/license/status"
+        headers: { X-Vault-Token: "{{ lookup('file', platform_token_path) | trim }}" }
+        status_code: [200, 400, 404]
+      check_mode: false
+      register: engines_license
+
+    - name: Keep the licence facts that matter
+      ansible.builtin.set_fact:
+        engines_license_ok: >-
+          {{ engines_license.status == 200 and
+             (engines_license.json.data.autoloaded.expiration_time | default('')) > engines_now }}
+        engines_license_features: "{{ engines_license.json.data.autoloaded.features | default([], true) if engines_license.status == 200 else [] }}"
+
+    - name: List namespaces
+      ansible.builtin.uri:
+        url: "{{ engines_addr }}/v1/sys/namespaces"
+        method: LIST
+        headers: { X-Vault-Token: "{{ lookup('file', platform_token_path) | trim }}" }
+        status_code: [200, 404]
+      check_mode: false
+      register: engines_ns_list
+
+    - name: Note whether the engines namespace exists
+      ansible.builtin.set_fact:
+        engines_ns_present: >-
+          {{ engines_namespace in ((engines_ns_list.json.data['keys'] | default([])) | map('regex_replace', '/$', '') | list) }}
+
+    - name: Create the engines namespace
+      ansible.builtin.uri:
+        url: "{{ engines_addr }}/v1/sys/namespaces/{{ engines_namespace }}"
+        method: POST
+        headers: { X-Vault-Token: "{{ lookup('file', platform_token_path) | trim }}" }
+        status_code: [200, 204]
+      check_mode: false
+      changed_when: true
+      when: not engines_ns_present and not ansible_check_mode
+
+    - name: Read mounts in the engines namespace
+      ansible.builtin.uri:
+        url: "{{ engines_addr }}/v1/sys/mounts"
+        headers:
+          X-Vault-Token: "{{ lookup('file', platform_token_path) | trim }}"
+          X-Vault-Namespace: "{{ engines_namespace }}"
+      check_mode: false
+      register: engines_mounts
+      when: engines_ns_present or not ansible_check_mode
+
+- name: Report the licence
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'Licence valid until ' ~ engines_license.json.data.autoloaded.expiration_time
+         if engines_license_ok else
+         'Licence missing or expired: Enterprise-only engines are skipped' }}
+
+- name: Index existing mounts by path
+  ansible.builtin.set_fact:
+    engines_existing: >-
+      {{ (engines_mounts.json.data | default({})) if (engines_mounts.json is defined) else {} }}
+
+- name: Classify every engine
+  ansible.builtin.set_fact:
+    engines_plan: "{{ engines_plan | default([]) + [item | combine({'state': engines_state, 'reason': engines_reason})] }}"
+  vars:
+    engines_current: "{{ engines_existing[item.path ~ '/'] | default(none) }}"
+    engines_state: >-
+      {%- if item.type in engines_builtin_types or item.path in engines_reserved_paths -%}skipped
+      {%- elif not (item.enabled | default(true)) -%}skipped
+      {%- elif item.license_feature is defined and not engines_license_ok -%}skipped
+      {%- elif item.license_feature is defined and item.license_feature not in engines_license_features -%}skipped
+      {%- elif engines_current is not none and engines_current.type == item.type -%}present
+      {%- elif engines_current is not none -%}failed
+      {%- else -%}missing{%- endif -%}
+    engines_reason: >-
+      {%- if item.type in engines_builtin_types or item.path in engines_reserved_paths -%}built-in mount, managed by Vault
+      {%- elif not (item.enabled | default(true)) -%}{{ item.skip_reason | default('disabled in vault_engines') }}
+      {%- elif item.license_feature is defined and not engines_license_ok -%}Enterprise-only; licence missing or expired
+      {%- elif item.license_feature is defined and item.license_feature not in engines_license_features -%}licence lacks "{{ item.license_feature }}"
+      {%- elif engines_current is not none and engines_current.type != item.type -%}{{ item.path }}/ exists as {{ engines_current.type }}; never retyped
+      {%- endif -%}
+  loop: "{{ vault_engines }}"
+  loop_control:
+    label: "{{ engines_namespace }}/{{ item.path }} ({{ item.type }})"
+
+- name: Mount missing engines (each one independently)
+  ansible.builtin.uri:
+    url: "{{ engines_addr }}/v1/sys/mounts/{{ item.path }}"
+    ca_path: "{{ vault_ca_cert }}"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ lookup('file', platform_token_path) | trim }}"
+      X-Vault-Namespace: "{{ engines_namespace }}"
+    body_format: json
+    body:
+      type: "{{ item.type }}"
+      description: "{{ item.description | default('Managed by Ansible') }}"
+      options: "{{ item.options | default({}) }}"
+    status_code: [200, 204]
+  check_mode: false
+  loop: "{{ engines_plan | selectattr('state', 'equalto', 'missing') | list }}"
+  loop_control:
+    label: "{{ engines_namespace }}/{{ item.path }} ({{ item.type }})"
+  register: engines_mounted
+  failed_when: false
+  changed_when: engines_mounted.status | default(0) in [200, 204]
+  no_log: true
+  when: not ansible_check_mode
+
+# The mount responses are no_log; carry only status and Vault's error text.
+- name: Record each mount result
+  ansible.builtin.set_fact:
+    engines_results: >-
+      {{ engines_results | default({}) | combine({item.item.path: {
+           'ok': item.status | default(0) in [200, 204],
+           'reason': (item.json.errors | default([]) | join('; ')) or item.msg | default('no response') }}) }}
+  loop: "{{ engines_mounted.results | default([]) | selectattr('skipped', 'undefined') | list }}"
+  loop_control:
+    label: "{{ item.item.path }}"
+
+- name: Summarise
+  ansible.builtin.set_fact:
+    engines_summary:
+      namespace: "{{ engines_namespace }}"
+      licence: "{{ 'valid' if engines_license_ok else 'missing or expired' }}"
+      enabled: "{{ engines_results | default({}) | dict2items | selectattr('value.ok') | map(attribute='key') | list }}"
+      would_enable: >-
+        {{ (engines_plan | selectattr('state', 'equalto', 'missing') | map(attribute='path') | list) if ansible_check_mode else [] }}
+      already_present: "{{ engines_plan | selectattr('state', 'equalto', 'present') | map(attribute='path') | list }}"
+      skipped: >-
+        {%- set out = [] -%}
+        {%- for e in engines_plan | selectattr('state', 'equalto', 'skipped') -%}
+        {%- set _ = out.append({'path': e.path, 'reason': e.reason}) -%}
+        {%- endfor -%}{{ out }}
+      failed: >-
+        {%- set out = [] -%}
+        {%- for e in engines_plan | selectattr('state', 'equalto', 'failed') -%}
+        {%- set _ = out.append({'path': e.path, 'reason': e.reason}) -%}
+        {%- endfor -%}
+        {%- for r in engines_results | default({}) | dict2items | rejectattr('value.ok') -%}
+        {%- set _ = out.append({'path': r.key, 'reason': r.value.reason}) -%}
+        {%- endfor -%}{{ out }}
+
+- name: Report the engines
+  ansible.builtin.debug:
+    var: engines_summary
+
+- name: Report the drift check mode would correct
+  ansible.builtin.debug:
+    msg: >-
+      Would create namespace {{ engines_namespace if not engines_ns_present else '(present)' }}
+      and mount {{ engines_summary.would_enable }}
+  changed_when: true
+  when:
+    - ansible_check_mode
+    - not engines_ns_present or engines_summary.would_enable | length > 0
+
+- name: Every wanted engine is mounted
+  ansible.builtin.assert:
+    that: engines_summary.failed | length == 0
+    fail_msg: "Engines that failed to mount: {{ engines_summary.failed | map(attribute='path') | join(', ') }} (reasons above)"
+    quiet: true
+  when: engines_fail_on_error | bool

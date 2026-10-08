@@ -1,0 +1,54 @@
+---
+# Secrets engines shown on the console's Engines page. All of them live in
+# one namespace so the platform namespaces stay untouched and the page reads
+# exactly one sys/mounts.
+engines_namespace: engines
+
+# Fail the play (after the summary) when an engine could not be mounted.
+engines_fail_on_error: true
+
+# Mount types Vault creates itself, in the root namespace and in children.
+# Never enabled, never shown.
+engines_builtin_types:
+  - system
+  - identity
+  - cubbyhole
+  - agent_registry
+  - ns_system
+  - ns_identity
+  - ns_cubbyhole
+  - ns_agent_registry
+engines_reserved_paths: [sys, identity, cubbyhole, agent-registry]
+
+# type             — `vault secrets enable <type>` (developer.hashicorp.com, v2.x)
+# license_feature  — feature name in sys/license/status; Enterprise engines
+#                    are skipped when the licence is missing, expired or lacks it
+# enabled: false   — not mounted; skip_reason says why
+vault_engines:
+  # ── self-contained, open source ─────────────────────────────────────────────
+  - { type: kv, path: kv, description: Key/Value v2, options: { version: "2" } }
+  - { type: transit, path: transit, description: Encryption as a service }
+  - { type: pki, path: pki, description: X.509 certificates }
+  - { type: ssh, path: ssh, description: Signed SSH certificates and OTPs }
+  - { type: totp, path: totp, description: Time-based one-time passwords }
+  # ── self-contained, Enterprise ──────────────────────────────────────────────
+  - { type: transform, path: transform, description: Tokenization and format-preserving encryption, license_feature: Transform Secrets Engine }
+  - { type: kmip, path: kmip, description: KMIP server (no listener until kmip/config is written), license_feature: KMIP }
+  - { type: keymgmt, path: keymgmt, description: Key lifecycle for cloud KMS, license_feature: Key Management Secrets Engine }
+  - { type: spiffe, path: spiffe, description: SPIFFE SVIDs issued by Vault, license_feature: SPIFFE Secrets Engine }
+  # ── need an external system to be meaningful: listed, not mounted ──────────
+  - { type: pki-external-ca, path: pki-external-ca, enabled: false, license_feature: PKI External CA Secrets Engine, skip_reason: needs an ACME certificate authority }
+  - { type: database, path: database, enabled: false, skip_reason: needs a database to connect to }
+  - { type: ldap, path: ldap, enabled: false, skip_reason: needs a directory with a privileged bind account }
+  - { type: kubernetes, path: kubernetes, enabled: false, skip_reason: needs a Kubernetes cluster }
+  - { type: aws, path: aws, enabled: false, skip_reason: needs AWS credentials }
+  - { type: azure, path: azure, enabled: false, skip_reason: needs an Azure service principal }
+  - { type: gcp, path: gcp, enabled: false, skip_reason: needs a GCP service account }
+  - { type: gcpkms, path: gcpkms, enabled: false, skip_reason: needs GCP Cloud KMS }
+  - { type: alicloud, path: alicloud, enabled: false, skip_reason: needs AliCloud credentials }
+  - { type: consul, path: consul, enabled: false, skip_reason: needs a Consul cluster }
+  - { type: nomad, path: nomad, enabled: false, skip_reason: needs a Nomad cluster }
+  - { type: rabbitmq, path: rabbitmq, enabled: false, skip_reason: needs a RabbitMQ server }
+  - { type: mongodbatlas, path: mongodbatlas, enabled: false, skip_reason: needs MongoDB Atlas API keys }
+  - { type: terraform, path: terraform, enabled: false, skip_reason: needs an HCP Terraform API token }
+  - { type: vault-plugin-secrets-os, path: os, enabled: false, skip_reason: "plugin must be downloaded and registered first, and needs SSH to target hosts" }

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `make engines` / `engines-check` (`ansible/engines.yml`, role
+  `vault_engines`): every self-contained secrets engine — KV v2, Transit, PKI,
+  SSH, TOTP, and with a licence that has the feature Transform, KMIP, Key
+  Management, SPIFFE — in namespace `engines`. Idempotent, per-engine failure
+  handling, licence gate, reasons for every skipped engine; a phase of
+  `make lab` after `ux`.
+- Console **Engines** page (under Fleet): one tile per engine Vault reports,
+  read live through the front door with a dedicated orphan token (policy
+  `red-pass-ui-engines`: read `engines/sys/mounts` only), with explicit
+  unreachable / denied / not-configured / empty states.
+
 ## [1.0.0] - 2026-10-07
 
 ### Added

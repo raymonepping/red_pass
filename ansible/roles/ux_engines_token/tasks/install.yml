@@ -1,0 +1,33 @@
+---
+# red-ux-1 side: the token as a redux-readable file and a systemd drop-in that
+# points the console at it. ux_app's own files are left untouched.
+
+- name: Install the engines token (contents suppressed)
+  ansible.builtin.copy:
+    src: "{{ ux_engines_token_path }}"
+    dest: "{{ ux_conf_dir }}/engines-token"
+    owner: root
+    group: "{{ ux_user }}"
+    mode: "0640"
+  no_log: true
+  diff: false
+  notify: Restart red-ux for the engines token
+  # --check before the first real run: there is no token to copy yet.
+  when: not ansible_check_mode or ux_engines_token_path is file
+
+- name: Create the drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/red-ux.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Point the console at Vault and the token
+  ansible.builtin.template:
+    src: engines.conf.j2
+    dest: /etc/systemd/system/red-ux.service.d/engines.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart red-ux for the engines token

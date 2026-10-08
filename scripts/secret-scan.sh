@@ -10,7 +10,7 @@ declare -A values=()
 [[ -n "${VAULT_LICENSE:-}" ]] && values[license]="${VAULT_LICENSE:0:64}"
 [[ -n "${RHSM_ORG:-}" ]] && values[rhsm_org]="${RHSM_ORG}"
 [[ -n "${RHSM_ACTIVATION_KEY:-}" ]] && values[rhsm_key]="${RHSM_ACTIVATION_KEY}"
-for f in seal-token platform-token; do
+for f in seal-token platform-token ux/engines-token; do
   [[ -f "${SECRETS_DIR}/${f}" ]] && values["${f}"]="$(tr -d '\n' <"${SECRETS_DIR}/${f}")"
 done
 for f in seal-init vault-init; do

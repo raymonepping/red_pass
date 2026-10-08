@@ -1,0 +1,141 @@
+---
+# Controller side: the read-only policy, the token role, and a valid token in
+# .secrets/ux/engines-token. All calls use the platform token; no_log
+# throughout.
+
+- name: Address the cluster
+  ansible.builtin.set_fact:
+    ux_engines_addr: "https://{{ hostvars[vault_leader].ansible_host }}:{{ vault_api_port }}"
+    ux_engines_policy_text: "{{ lookup('file', repo_root ~ '/policies/' ~ ux_engines_policy ~ '.hcl') }}"
+
+- name: Policy, token role and token
+  module_defaults:
+    ansible.builtin.uri:
+      ca_path: "{{ vault_ca_cert }}"
+  no_log: true
+  block:
+    - name: Read the console policy
+      ansible.builtin.uri:
+        url: "{{ ux_engines_addr }}/v1/sys/policies/acl/{{ ux_engines_policy }}"
+        headers: { X-Vault-Token: "{{ lookup('file', platform_token_path) | trim }}" }
+        status_code: [200, 404]
+      check_mode: false
+      register: ux_engines_policy_read
+
+    - name: Write the console policy when it differs
+      ansible.builtin.uri:
+        url: "{{ ux_engines_addr }}/v1/sys/policies/acl/{{ ux_engines_policy }}"
+        method: POST
+        headers: { X-Vault-Token: "{{ lookup('file', platform_token_path) | trim }}" }
+        body_format: json
+        body: { policy: "{{ ux_engines_policy_text }}" }
+        status_code: [200, 204]
+      check_mode: false
+      changed_when: true
+      when:
+        - not ansible_check_mode
+        - ux_engines_policy_read.status == 404 or
+          (ux_engines_policy_read.json.data.policy | trim) != (ux_engines_policy_text | trim)
+
+    - name: Read the token role
+      ansible.builtin.uri:
+        url: "{{ ux_engines_addr }}/v1/auth/token/roles/{{ ux_engines_token_role }}"
+        headers: { X-Vault-Token: "{{ lookup('file', platform_token_path) | trim }}" }
+        status_code: [200, 404]
+      check_mode: false
+      register: ux_engines_role_read
+
+    - name: Write the token role when it differs
+      ansible.builtin.uri:
+        url: "{{ ux_engines_addr }}/v1/auth/token/roles/{{ ux_engines_token_role }}"
+        method: POST
+        headers: { X-Vault-Token: "{{ lookup('file', platform_token_path) | trim }}" }
+        body_format: json
+        body:
+          allowed_policies: ["{{ ux_engines_policy }}"]
+          orphan: true
+          renewable: true
+          token_period: "{{ ux_engines_token_period }}"
+          token_no_default_policy: true
+        status_code: [200, 204]
+      check_mode: false
+      changed_when: true
+      when:
+        - not ansible_check_mode
+        - ux_engines_role_read.status == 404 or
+          ux_engines_role_read.json.data.allowed_policies | default([]) != [ux_engines_policy] or
+          not ux_engines_role_read.json.data.orphan | default(false) or
+          ux_engines_role_read.json.data.token_period | default(0) | int != ux_engines_token_period_seconds or
+          not ux_engines_role_read.json.data.token_no_default_policy | default(false)
+
+    - name: Check for an existing console token
+      ansible.builtin.stat:
+        path: "{{ ux_engines_token_path }}"
+      register: ux_engines_token_file
+
+    - name: Validate the existing console token
+      ansible.builtin.uri:
+        url: "{{ ux_engines_addr }}/v1/auth/token/lookup-self"
+        headers: { X-Vault-Token: "{{ lookup('file', ux_engines_token_path) | trim }}" }
+        status_code: [200, 403]
+      check_mode: false
+      register: ux_engines_token_check
+      when: ux_engines_token_file.stat.exists
+
+    - name: Issue the console token through its role
+      ansible.builtin.uri:
+        url: "{{ ux_engines_addr }}/v1/auth/token/create/{{ ux_engines_token_role }}"
+        method: POST
+        headers: { X-Vault-Token: "{{ lookup('file', platform_token_path) | trim }}" }
+        body_format: json
+        body:
+          policies: ["{{ ux_engines_policy }}"]
+          display_name: red-pass-ui-engines
+        status_code: [200]
+      check_mode: false
+      register: ux_engines_new_token
+      changed_when: true
+      when:
+        - not ansible_check_mode
+        - not ux_engines_token_file.stat.exists or ux_engines_token_check.status == 403
+
+    - name: Persist the console token
+      ansible.builtin.copy:
+        content: "{{ ux_engines_new_token.json.auth.client_token }}\n"
+        dest: "{{ ux_engines_token_path }}"
+        mode: "0600"
+      diff: false
+      when: ux_engines_new_token is changed
+
+    - name: Renew the console token below {{ ux_engines_token_min_ttl_seconds }}s (maintenance)
+      ansible.builtin.uri:
+        url: "{{ ux_engines_addr }}/v1/auth/token/renew-self"
+        method: POST
+        headers: { X-Vault-Token: "{{ lookup('file', ux_engines_token_path) | trim }}" }
+      changed_when: false
+      when:
+        - not ansible_check_mode
+        - ux_engines_token_check.status | default(0) == 200
+        - ux_engines_token_check.json.data.ttl | int < ux_engines_token_min_ttl_seconds
+
+    - name: Prove the console token holds exactly its one policy
+      ansible.builtin.uri:
+        url: "{{ ux_engines_addr }}/v1/auth/token/lookup-self"
+        headers: { X-Vault-Token: "{{ lookup('file', ux_engines_token_path) | trim }}" }
+      check_mode: false
+      register: ux_engines_token_proof
+      when: not ansible_check_mode
+
+- name: The console token is narrow, orphan and periodic
+  ansible.builtin.assert:
+    that:
+      - ux_engines_token_proof.json.data.policies | sort == [ux_engines_policy]
+      - ux_engines_token_proof.json.data.orphan | bool
+      # Role-periodic tokens report the role and its period as creation_ttl.
+      - ux_engines_token_proof.json.data.role == ux_engines_token_role
+      - ux_engines_token_proof.json.data.creation_ttl | int == ux_engines_token_period_seconds
+      - ux_engines_token_proof.json.data.explicit_max_ttl | int == 0
+      - ux_engines_token_proof.json.data.renewable | bool
+    fail_msg: The console's engines token is not {{ ux_engines_policy }}-only, orphan and periodic.
+    quiet: true
+  when: not ansible_check_mode

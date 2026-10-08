@@ -18,6 +18,7 @@ lab grew around it: a seal agent, people (OpenLDAP + Keycloak), a front door
 | Entry point | node addresses | `edge_proxy` role: HAProxy front door on `red-proxy-1` |
 | Console | host-only Nuxt app | `ux_app` role: observe-only console on `red-ux-1` (+ host mode) |
 | Namespaces + mounts | Terraform Vault provider | `vault_platform` role via the Vault HTTP API |
+| Secrets engines showcase | — | `vault_engines` role (namespace `engines`), shown live by the console with its own read-only token (`ux_engines_token`) |
 | Drift detection | `terraform plan` | `make check-mode` / `make platform-check` (`changed=0` = no drift) |
 | "Last converged" | `terraform/ansible` `automation_digest` output | `.build/convergence.json` + `scripts/automation-digest.sh` |
 

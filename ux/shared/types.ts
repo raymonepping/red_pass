@@ -133,3 +133,26 @@ export interface SessionInfo {
   user: string | null
   role: UserRole | null
 }
+
+/** One secrets engine as Vault reports it in the engines namespace. */
+export interface EngineMount {
+  path: string
+  type: string
+  description: string
+  pluginVersion: string | null
+}
+
+/**
+ * live:         Vault answered; engines is exactly what it reported.
+ * unreachable:  no answer from Vault (network, TLS, sealed, 5xx).
+ * denied:       Vault refused the console's token (expired or revoked).
+ * unconfigured: the console has no Vault address or token (make engines).
+ */
+export type EnginesState = 'live' | 'unreachable' | 'denied' | 'unconfigured'
+
+export interface EnginesResponse {
+  state: EnginesState
+  namespace: string | null
+  checkedAt: string
+  engines: EngineMount[]
+}

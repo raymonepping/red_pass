@@ -8,13 +8,15 @@ them fakes evidence.
 | Gate | Proves |
 | --- | --- |
 | `make check` | controller tools, `bash -n` + ShellCheck on scripts, `ansible-playbook --syntax-check` on every playbook, no secret paths tracked |
-| `make ui-check` | console: strict TypeScript, ESLint, 77 unit tests, production build |
+| `make ui-check` | console: strict TypeScript, ESLint, 89 unit tests, production build |
 
 Unit tests (`ux/tests`) cover Multipass JSON normalisation and safe argv,
 ownership/convergence truth rules, seal-node vs cluster-node posture, report
 staleness, service-node evidence, front-door parsing (incl. *standby*), origin
 allow-list, the session guard and role gates, PKCE, the VM-list summary, and
-redaction of command errors.
+redaction of command errors, and the Engines adapter (allow-listed
+`sys/mounts` fields, built-ins dropped, `live`/`denied`/`unreachable`/
+`unconfigured`, refused addresses and paths).
 
 ## Idempotency and drift
 
@@ -23,6 +25,7 @@ redaction of command errors.
 | second `make lab` | `changed=0` on every VM (only the console's evidence sync changes) |
 | `make check-mode` | provision → platform in `--check --diff`: `changed=0` |
 | `make platform-check` | Vault namespaces/mounts match `group_vars`; a hand-disabled mount shows up and `make platform` restores it |
+| `make engines` ×2 | first run mounts the engines, second `changed=0`; a hand-disabled engine leaves the Engines page within 10 s and the next run restores exactly that one |
 | console *Ansible* indicator | the last green run's automation digest equals today's (`scripts/automation-digest.sh`) |
 
 ## Readiness contract (`make validate`)

@@ -1,0 +1,34 @@
+---
+# engines.yml — every self-contained secrets engine, mounted in the engines
+# namespace through the HTTP API with the scoped platform token, and the
+# console's read-only token for its Engines page (what Vault reports there).
+#
+#   make engines          apply (idempotent: changed only when something is added)
+#   make engines-check    --check --diff: report what would be mounted
+
+- name: Build the in-memory inventory
+  ansible.builtin.import_playbook: discover.yml
+
+- name: Vault secrets engines
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  roles:
+    - vault_engines
+
+- name: The console's read-only engines token
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  roles:
+    - ux_engines_token
+
+- name: The console reads the engines with it
+  hosts: ux
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Install the token and point the console at Vault
+      ansible.builtin.include_role:
+        name: ux_engines_token
+        tasks_from: install.yml

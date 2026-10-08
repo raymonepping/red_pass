@@ -28,5 +28,8 @@ export RED_PASS_ALLOWED_ORIGINS="http://127.0.0.1:3310"
 export RED_PASS_OIDC_ISSUER="https://${proxy:-${identity}}:8443/realms/red-pass"
 export RED_PASS_OIDC_CLIENT_SECRET_FILE="${SECRETS_DIR}/ux/oidc-client-secret"
 export RED_PASS_SESSION_SECRET_FILE="${SECRETS_DIR}/ux/session-secret"
+export RED_PASS_ENGINES_TOKEN_FILE="${SECRETS_DIR}/ux/engines-token"
+export RED_PASS_ENGINES_NAMESPACE=engines
+export RED_PASS_VAULT_ADDR="https://${proxy}:8202"
 export NODE_EXTRA_CA_CERTS="${SECRETS_DIR}/tls/ca.crt"
 exec node scripts/start.mjs

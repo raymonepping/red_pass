@@ -112,3 +112,17 @@ path "identity/group-alias" {
 path "identity/group-alias/*" {
   capabilities = ["create", "read", "update", "list"]
 }
+
+# ── Engines page (ansible/engines.yml) ───────────────────────────────────────
+# The console's read-only policy, its token role, and tokens from that role only.
+path "sys/policies/acl/red-pass-ui-engines" {
+  capabilities = ["create", "read", "update"]
+}
+
+path "auth/token/roles/red-pass-ui-engines" {
+  capabilities = ["create", "read", "update"]
+}
+
+path "auth/token/create/red-pass-ui-engines" {
+  capabilities = ["create", "update"]
+}

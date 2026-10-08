@@ -106,6 +106,38 @@ The role creates what is missing and refuses (fails) when a mount exists
 with a different type. It never deletes or retypes; pruning is deliberately
 out of scope.
 
+## Secrets engines (Engines page)
+
+The list is `vault_engines` in `ansible/roles/vault_engines/defaults/main.yml`
+(`type`, `path`, `description`, `options`, `license_feature`, `enabled`,
+`skip_reason`). Everything lands in namespace `engines`.
+
+```bash
+make engines-check    # would_enable / skipped (with reasons) — changes nothing
+make engines          # mount what is missing; changed=0 on a rerun
+```
+
+- Each engine succeeds or fails on its own; the summary lists `enabled`,
+  `already_present`, `skipped` and `failed` with Vault's reason, and the play
+  fails afterwards if anything failed.
+- Enterprise engines (`transform`, `kmip`, `keymgmt`, `spiffe`) are skipped
+  when `sys/license/status` is missing, expired or lacks their feature.
+- Built-in mounts (`sys`, `identity`, `cubbyhole`, `agent-registry`) are never
+  touched. Engines that need an external system (database, cloud, ACME, …) are
+  listed with `enabled: false` and a reason; the OS engine needs a plugin
+  download and SSH targets.
+- KMIP is mounted, not configured: no listener on 5696 until someone writes
+  `kmip/config`.
+- The same run keeps the console's read-only token valid and installs it on
+  red-ux-1 with a systemd drop-in (`red-ux.service.d/engines.conf`).
+
+| Page shows | Meaning / fix |
+| --- | --- |
+| *Vault did not answer* | front door or Vault down — `make status`, `make validate` |
+| *token was refused* | the engines token expired or was revoked — `make engines` |
+| *not set up yet* | no address or token on this console — `make engines` (host mode: `make ui-start-auth`) |
+| *No engines enabled* | Vault reports none in `engines` — `make engines` |
+
 ## Manual failover acceptance test
 
 Not automated, because it changes live state.

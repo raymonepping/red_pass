@@ -30,7 +30,7 @@ make check
 make lab
 ```
 
-Nine phases run in order and stop at the first failure with the exact resume
+Ten phases run in order and stop at the first failure with the exact resume
 command. A clean Mac takes about half an hour (RHSM registration, `dnf`, the
 Vault download and Keycloak's first start dominate); a converged lab re-runs in
 a few minutes and reports `changed=0`.
@@ -49,7 +49,10 @@ What you get, in the order it is built:
 6. **proxy** — the HAProxy front door.
 7. **identity** — OpenLDAP, Keycloak, Vault OIDC/JWT/LDAP auth and groups.
 8. **ux** — the console on red-ux-1.
-9. **validate** — every check in [testing.md](testing.md), recorded in
+9. **engines** — nine self-contained secrets engines in namespace `engines`
+   (Enterprise ones only with a valid licence that has the feature), and the
+   console's read-only token for its Engines page.
+10. **validate** — every check in [testing.md](testing.md), recorded in
    `.build/validation.json`.
 
 ## 3. Trust the lab CA
@@ -82,6 +85,9 @@ vault write -namespace=engineering transit/encrypt/red-pass-demo plaintext=$(ech
 
 - **Fleet** — seal chain: `red-vault-s` → `red-agent-1` → the three nodes, all
   green. Hero tiles: Vault secured 4/4, Raft voters 3/3.
+- **Engines** — nine tiles, each *Live* because Vault reports it mounted right
+  now; disable one (`vault secrets disable -ns=engines totp`) and it is gone on
+  the next refresh, `make engines` brings it back.
 - **Virtual machines** — eight cards, four indicators each. Click any
   indicator: the drawer lists every check behind it, with its source and age.
 - **Front door** — six entry points; on the Vault write path the leader is

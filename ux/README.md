@@ -33,8 +33,15 @@ Transit key, seal agent token and rotation); cluster evidence is never attribute
 ## Boundaries
 
 - Server-side only; `execFile` with fixed argv, timeouts and bounded output.
-- Reads only allow-listed fields from `.build/*.json`; never `.secrets/`.
+- Reads only allow-listed fields from `.build/*.json`; never `.secrets/`,
+  except the read-only engines token whose path `make engines` (VM) or
+  `make ui-start-auth` (host) hands it. That token can read
+  `engines/sys/mounts` and nothing else; it is never logged or returned.
 - Mutations: Multipass start/stop/restart/suspend/delete/recover/purge, with
   Origin checks, per-instance locks, confirmation, an ownership-drift
   acknowledgement for Ansible-provisioned VMs, and an exact phrase for purge.
 - It never runs `make`, Ansible, Vault writes or RHSM.
+- `GET /api/engines` (session required): one live `sys/mounts` read in
+  namespace `engines` (`RED_PASS_VAULT_ADDR`, `RED_PASS_ENGINES_NAMESPACE`,
+  `RED_PASS_ENGINES_TOKEN_FILE`), cached 10 s; returns path, type,
+  description and plugin version only.

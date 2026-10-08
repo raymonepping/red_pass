@@ -5,6 +5,7 @@ const { plane } = usePlane()
 const attention = computed(() => attentionCount(plane.value?.instances ?? []))
 const nav = computed(() => [
   { to: '/', label: 'Fleet', icon: 'fleet', active: route.path === '/' },
+  { to: '/engines', label: 'Engines', icon: 'engines', active: route.path === '/engines' },
   { to: '/machines', label: 'Virtual machines', icon: 'vms', active: route.path === '/machines' || route.path.startsWith('/instances'), badge: attention.value },
   ...(plane.value?.frontDoor ? [{ to: '/front-door', label: 'Front door', icon: 'door', active: route.path === '/front-door' }] : []),
 ])
@@ -32,7 +33,7 @@ const chain = computed(() => {
 const mode = computed(() => plane.value?.mode ?? 'host')
 const title = computed(() => route.path.startsWith('/instances/')
   ? decodeURIComponent(String(route.params.name || 'Instance'))
-  : route.path === '/machines' ? 'Virtual machines' : route.path === '/front-door' ? 'Front door' : 'Fleet')
+  : route.path === '/machines' ? 'Virtual machines' : route.path === '/engines' ? 'Engines' : route.path === '/front-door' ? 'Front door' : 'Fleet')
 </script>
 
 <template>
@@ -50,6 +51,7 @@ const title = computed(() => route.path.startsWith('/instances/')
         <NuxtLink v-for="item in nav" :key="item.to" :to="item.to" class="nav-item" :class="{ active: item.active }" :aria-current="item.active ? 'page' : undefined">
           <span class="nav-icon">
             <svg v-if="item.icon === 'fleet'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4" /></svg>
+            <svg v-else-if="item.icon === 'engines'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="15.5" r="4.5" /><path d="m10.7 12.3 9.3-9.3M17 6l3 3M14.5 8.5l2 2" /></svg>
             <svg v-else-if="item.icon === 'vms'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="2" /><rect x="3" y="13" width="18" height="7" rx="2" /><path d="M7 7.5h.01M7 16.5h.01" /></svg>
             <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v16M2 21h20M14 12h.01" /></svg>
           </span>

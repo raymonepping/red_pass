@@ -31,7 +31,8 @@ credential it needs.
 | Lab CA key, node keys | `.secrets/tls/` (0600); each node only its own key | Ansible / that node | CA 10 y, nodes ≤ 825 d |
 | Seal Vault unseal key + root token | `.secrets/seal-init.json` | operator, `make unseal` | permanent (break glass) |
 | Cluster recovery keys + root token | `.secrets/vault-init.json` | operator only (never for unsealing) | permanent (break glass) |
-| Platform token (policy `red-pass-platform-admin`) | `.secrets/platform-token` | Ansible platform/identity phases | periodic 24 h, renewed |
+| Platform token (policy `red-pass-platform-admin`) | `.secrets/platform-token` | Ansible platform/identity/engines phases | periodic 24 h, renewed |
+| Console engines token (policy `red-pass-ui-engines`) | `.secrets/ux/engines-token`; red-ux-1 `/etc/red-ux/engines-token` (`root:redux` 0640) | the console's `/api/engines` | orphan, periodic 720 h, renewed by `make engines` below 72 h |
 | Seal agent AppRole secret-id | red-agent-1 `/var/lib/vault-agent/secret-id` | Vault Agent, from its own IP only | 24 h, rotated every 6 h |
 | Seal rotator AppRole secret-id | red-agent-1 `/etc/vault-agent/approle/` | rotator, from its own IP only, may only mint/destroy agent secret-ids | no TTL (CIDR-bound anchor) |
 | Agent's Vault token (policy `autounseal`) | agent memory only | injected into proxied calls | 1 h, max 24 h |
@@ -65,7 +66,8 @@ ports are DNAT'd past firewalld and would have ignored these rules.
 | `red-pass-admins` (raymon) | `red-pass-admin` | everything (lab) |
 | `red-pass-operators` (barend) | `red-pass-operator` | engineering KV read/write, Transit encrypt/decrypt |
 | `red-pass-viewers` (viewer) | `red-pass-viewer` | list mounts and metadata |
-| platform token | `red-pass-platform-admin` | namespaces, mounts, auth methods, the three person policies by exact name, external groups, `secret/red-pass/*` |
+| platform token | `red-pass-platform-admin` | namespaces, mounts, auth methods, the person policies and `red-pass-ui-engines` by exact name, the `red-pass-ui-engines` token role (create tokens only through it), external groups, `secret/red-pass/*` |
+| console (Engines page) | `red-pass-ui-engines` | read `engines/sys/mounts`; look up and renew its own token — no default policy, nothing else (every other path answers 403) |
 | seal agent | `autounseal` | encrypt/decrypt with `transit/keys/autounseal` |
 | seal rotator | `seal-rotator` | mint/list/destroy the agent's secret-ids |
 

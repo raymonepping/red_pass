@@ -36,6 +36,13 @@ platform: ## Create missing namespaces/mounts through the Vault API
 platform-check: ## Report platform drift without changing anything
 	CHECK=1 $(RUN) platform
 
+.PHONY: engines engines-check
+engines: ## Mount the self-contained secrets engines in the engines namespace
+	$(RUN) engines
+
+engines-check: ## Report which engines would be mounted, change nothing
+	CHECK=1 $(RUN) engines
+
 validate: ## Read-only end-to-end validation, writes .build/validation.json
 	$(RUN) validate
 

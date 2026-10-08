@@ -26,7 +26,8 @@ make lab
   6 proxy       HAProxy front door on red-proxy-1 (TLS in, verified TLS out)
   7 identity    OpenLDAP + Keycloak → Vault auth/oidc, auth/jwt, auth/ldap + external groups
   8 ux          deploy the console to red-ux-1
-  9 validate    read-only readiness contract (cluster, seal chain, people, front door)
+  9 engines     self-contained secrets engines in namespace engines + the console's read-only token
+ 10 validate    read-only readiness contract (cluster, seal chain, people, front door)
 ```
 
 ## Topology
@@ -116,7 +117,8 @@ other identity secrets are generated once into Vault KV. Details:
 | **VM** (default) | `https://<proxy>` → red-ux-1 | none — observe-only, sign-in required |
 | **Host** | `http://127.0.0.1:3310` via `make ui-start` (open) or `make ui-start-auth` (Keycloak) | by role, through Multipass |
 
-Pages: **Fleet** (hero tiles, the three-hop seal chain), **Virtual machines**
+Pages: **Fleet** (hero tiles, the three-hop seal chain), **Engines** (every
+secrets engine Vault reports in namespace `engines`, read live), **Virtual machines**
 (four indicators per VM — Provisioned · RHEL healthy · Ansible converged ·
 Vault secured / Service), **Front door** (entry points with live backends), a
 detail page per VM, and the sign-in page. The sidebar carries the indicator
@@ -131,6 +133,7 @@ key. See [ux/README.md](ux/README.md) and [DESIGN.md](DESIGN.md).
 | `make check` | Tools, ShellCheck, playbook syntax, no secret paths tracked |
 | `make check-mode` | `--check --diff` over provision → platform; `changed=0` on a converged lab |
 | `make platform-check` | Report Vault platform drift without changing anything |
+| `make engines` · `engines-check` | Mount the self-contained secrets engines (KV, Transit, PKI, SSH, TOTP, Transform, KMIP, Key Management, SPIFFE) · report what would be mounted |
 | `make status` · `ping` · `digest` | `vault status` of the four Vault nodes · verified SSH to all eight · automation digest |
 | `make unseal` | Unseal `red-vault-s` (one key); everything else follows |
 | `make seal-rotate` | Rotate the seal agent's secret-id now (normally every 6 h) |
