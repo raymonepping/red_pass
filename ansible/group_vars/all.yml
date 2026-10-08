@@ -192,6 +192,8 @@ seal_rotator_approle: red-pass-seal-rotator
 seal_rotator_policy: seal-rotator
 seal_secret_id_ttl: 24h
 seal_rotate_every: 6h
+# The same cadence on the wall clock (systemd OnCalendar): 00, 06, 12, 18 h.
+seal_rotate_calendar: "*-*-* 00/6:00:00"
 # Written by agent.yml once the agent is proven from a cluster node; from then
 # on cluster nodes reach the seal through the agent and hold no token.
 seal_agent_marker: "{{ build_dir }}/seal-agent.json"

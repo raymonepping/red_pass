@@ -22,6 +22,9 @@ the automation. Most are not specific to this lab.
   `maxpoll 6`, `chronyc waitsync` with a restart as rescue, certificates
   issued with `notBefore` one hour back.
 - **1 GB VMs cannot run `dnf`** against full RHEL repo metadata (OOM-killed): 2 GB.
+- **Monotonic systemd timers stall while the Mac sleeps** (`OnUnitActiveSec=6h`
+  ran 15 h late; `Persistent=` only applies to `OnCalendar=`). Use a wall-clock
+  `OnCalendar=` with `Persistent=true`: the missed slot fires after wake.
 
 ## RHEL and containers
 
